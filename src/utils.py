@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from config import LOGS_PATH
+from src.config import LOGS_PATH
 
 
 def setup_logging():
