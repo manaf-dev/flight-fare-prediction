@@ -3,15 +3,17 @@ Modeling module for the Flight Fare Prediction project.
 Handles model training, evaluation, and optimization.
 """
 
+import warnings
+
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import Lasso, LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.tree import DecisionTreeRegressor
+from sklearn.model_selection import RandomizedSearchCV, train_test_split
 
 from src.config import (
     CV_FOLDS,
@@ -118,85 +120,90 @@ def plot_actual_vs_predicted(y_test, y_pred, model_name):
 
 def train_advanced_models(X_train, y_train):
     """
-    Trains advanced regression models with hyperparameter tuning.
-
-    Args:
-        X_train (pd.DataFrame): Training features.
-        y_train (pd.Series): Training target.
-
-    Returns:
-        dict: Dictionary of trained models.
+    Trains advanced regression models with Randomized Search for efficiency.
     """
-    logger.info("Training advanced models...")
+    logger.info("Training advanced models using Randomized Search...")
 
     models = {}
 
-    # Ridge Regression
-    ridge_params = {"alpha": [0.1, 1.0, 10.0, 100.0]}
-    ridge_grid = GridSearchCV(
-        Ridge(random_state=RANDOM_STATE), ridge_params, cv=CV_FOLDS, scoring="r2"
-    )
-    ridge_grid.fit(X_train, y_train)
-    models["Ridge Regression"] = ridge_grid.best_estimator_
-    logger.info(f"Ridge best params: {ridge_grid.best_params_}")
+    def fit_with_random_search(
+        model_name, estimator, params, n_iter=20, suppress_conv_warning=False
+    ):
+        logger.info(f"Starting training for {model_name}...")
 
-    # Lasso Regression
-    lasso_params = {"alpha": [0.001, 0.01, 0.1, 1.0]}
-    lasso_grid = GridSearchCV(
+        # RandomizedSearchCV samples 'n_iter' combinations instead of all of them
+        search = RandomizedSearchCV(
+            estimator,
+            param_distributions=params,
+            n_iter=n_iter,
+            cv=CV_FOLDS,
+            scoring="r2",
+            n_jobs=-1,
+            random_state=RANDOM_STATE,
+            error_score="raise",
+            verbose=2,
+        )
+
+        try:
+            if suppress_conv_warning:
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                    search.fit(X_train, y_train)
+            else:
+                search.fit(X_train, y_train)
+        except Exception as exc:
+            logger.exception(f"{model_name} training failed: {exc}")
+            return
+
+        models[model_name] = search.best_estimator_
+        logger.info(f"{model_name} best params: {search.best_params_}")
+
+    # Ridge & Lasso (Keep these small as they are fast anyway)
+    fit_with_random_search(
+        "Ridge Regression",
+        Ridge(random_state=RANDOM_STATE),
+        {"alpha": [0.1, 1.0, 10.0]},
+        n_iter=3,
+    )
+
+    fit_with_random_search(
+        "Lasso Regression",
         Lasso(random_state=RANDOM_STATE, max_iter=10000),
-        lasso_params,
-        cv=CV_FOLDS,
-        scoring="r2",
+        {"alpha": [0.01, 0.1, 1.0]},
+        n_iter=3,
+        suppress_conv_warning=True,
     )
-    lasso_grid.fit(X_train, y_train)
-    models["Lasso Regression"] = lasso_grid.best_estimator_
-    logger.info(f"Lasso best params: {lasso_grid.best_params_}")
 
-    # Decision Tree
-    dt_params = {"max_depth": [10, 20, None], "min_samples_split": [2, 5, 10]}
-    dt_grid = GridSearchCV(
-        DecisionTreeRegressor(random_state=RANDOM_STATE),
-        dt_params,
-        cv=CV_FOLDS,
-        scoring="r2",
-    )
-    dt_grid.fit(X_train, y_train)
-    models["Decision Tree"] = dt_grid.best_estimator_
-    logger.info(f"Decision Tree best params: {dt_grid.best_params_}")
-
-    # Random Forest
     rf_params = {
-        "n_estimators": [100, 200],
-        "max_depth": [10, 20, None],
-        "min_samples_split": [2, 5],
+        "n_estimators": [100, 200, 300],
+        "max_depth": [10, 20, 30, None],
+        "min_samples_split": [2, 5, 10],
+        "min_samples_leaf": [1, 2, 4],
+        "bootstrap": [True, False],
     }
-    rf_grid = GridSearchCV(
+    fit_with_random_search(
+        "Random Forest",
         RandomForestRegressor(random_state=RANDOM_STATE),
         rf_params,
-        cv=CV_FOLDS,
-        scoring="r2",
+        n_iter=15,
     )
-    rf_grid.fit(X_train, y_train)
-    models["Random Forest"] = rf_grid.best_estimator_
-    logger.info(f"Random Forest best params: {rf_grid.best_params_}")
 
     # Gradient Boosting
     gb_params = {
         "n_estimators": [100, 200],
-        "learning_rate": [0.01, 0.1],
-        "max_depth": [3, 5],
+        "learning_rate": [0.01, 0.05, 0.1],
+        "max_depth": [3, 4, 5],
     }
-    gb_grid = GridSearchCV(
+    fit_with_random_search(
+        "Gradient Boosting",
         GradientBoostingRegressor(random_state=RANDOM_STATE),
         gb_params,
-        cv=CV_FOLDS,
-        scoring="r2",
+        n_iter=10,
     )
-    gb_grid.fit(X_train, y_train)
-    models["Gradient Boosting"] = gb_grid.best_estimator_
-    logger.info(f"Gradient Boosting best params: {gb_grid.best_params_}")
 
-    logger.info("Advanced models trained.")
+    if not models:
+        raise RuntimeError("No advanced models were successfully trained.")
+
     return models
 
 
@@ -264,9 +271,5 @@ def save_model(model, model_name):
     """
     filename = f"{model_name.replace(' ', '_')}.pkl"
     filepath = f"{MODELS_PATH}/{filename}"
-    joblib.dump(model, filepath)
-    logger.info(f"Model saved to {filepath}")
-    joblib.dump(model, filepath)
-    logger.info(f"Model saved to {filepath}")
     joblib.dump(model, filepath)
     logger.info(f"Model saved to {filepath}")
