@@ -33,10 +33,15 @@ CATEGORICAL_FEATURES = [
     "class",
     "booking_source",
     "seasonality",
+    "season",
 ]
 NUMERICAL_FEATURES = [
     "duration_hrs",
     "base_fare_bdt",
     "tax_and_surcharge_bdt",
     "days_before_departure",
+    "departure_month",
+    "departure_day",
+    "departure_hour",
+    "departure_weekday",
 ]
