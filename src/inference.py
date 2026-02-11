@@ -30,7 +30,7 @@ def load_preprocessors():
     except Exception as e:
         raise Exception(f"Error loading preprocessors: {e}")
 
-def preprocess_input(input_data, scaler, encoders):
+def preprocess_input(input_data):
     """
     Preprocess input data for prediction.
 
@@ -50,7 +50,7 @@ def preprocess_input(input_data, scaler, encoders):
         df = feature_engineering(df)
 
         # Encode and scale
-        df_processed, _ = encode_and_scale(df)
+        df_processed, scaler, encoders = encode_and_scale(df)
 
         return df_processed
 
@@ -71,10 +71,10 @@ def predict_fare(input_data):
         # Load model and preprocessors
         model_path = os.path.join(MODELS_PATH, 'Gradient_Boosting.pkl')
         model = joblib.load(model_path)
-        scaler, encoders = load_preprocessors()
+        # scaler, encoders = load_preprocessors()
 
         # Preprocess input
-        processed_input = preprocess_input(input_data, scaler, encoders)
+        processed_input = preprocess_input(input_data)
 
         # Make prediction
         prediction = model.predict(processed_input)[0]
