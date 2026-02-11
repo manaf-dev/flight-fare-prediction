@@ -107,12 +107,25 @@ After preprocessing, cleaning, and feature engineering, the dataset is transform
 
 ## Usage
 
+### ML Pipeline
 Run the complete ML pipeline:
 ```bash
 python pipeline/main.py
 ```
 
 This will execute all steps from data loading to model training and save results to respective directories.
+
+### Streamlit Web App
+Launch the interactive flight fare prediction web application:
+```bash
+streamlit run app/app.py
+```
+
+The app will open in your browser at `http://localhost:8501` where you can:
+- Input flight details (airline, route, dates, etc.)
+- Get real-time fare predictions
+- View insights and recommendations
+- Explore model performance metrics
 
 ## Project Structure
 
