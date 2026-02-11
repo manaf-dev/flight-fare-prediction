@@ -186,6 +186,18 @@ The pipeline trains and compares multiple regression models:
 - Cox's Bazar (CXB) → Toronto (YYZ): 117,849 BDT
 - Cox's Bazar (CXB) → London (LHR): 116,668 BDT
 
+## Model Interpretation & Insights Report
+
+For a comprehensive analysis of model interpretability, business insights, and strategic recommendations, refer to the detailed report:
+
+**[Model Interpretation & Insights Report](reports/model_interpretation_and_insights.md)**
+
+This report includes:
+- **Feature Importance Analysis**: Detailed breakdown of Gradient Boosting feature importance and Ridge Regression coefficients
+- **Business Insights**: Deep dive into fare drivers, airline pricing strategies, and seasonal/route variations
+- **Stakeholder Recommendations**: Actionable insights for airlines, travel agencies, and passengers
+- **Non-Technical Summary**: Clear communication of findings for business decision-makers
+
 ## Visualizations
 
 The pipeline generates comprehensive visualizations saved to `visualizations/` directory:
