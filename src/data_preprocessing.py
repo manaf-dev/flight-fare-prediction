@@ -195,6 +195,8 @@ def encode_and_scale(df):
     logger.info(
         f"Encoding and scaling completed. Processed shape: {processed_df.shape}"
     )
+    # describe df
+    logger.info(f"Processed DataFrame:\n{processed_df.describe()}")
     return (
         processed_df,
         preprocessor.named_transformers_["num"],
