@@ -6,11 +6,27 @@ This report provides a comprehensive analysis of the Flight Fare Prediction mode
 
 ## 1. Feature Importance Analysis
 
-### Tree-Based Model: Gradient Boosting
+### Linear Model: Ridge Regression
 
-The Gradient Boosting model, our best-performing algorithm, provides feature importance scores that reveal the key drivers of flight fare variations. The feature importance plot shows the relative contribution of each feature to the model's predictions.
+The Ridge Regression model, our best-performing algorithm, provides interpretable coefficients that reveal the key drivers of flight fare variations. The coefficients show the linear relationship between features and fare predictions.
 
-![Feature Importance - Gradient Boosting](/visualizations/feature_importance_Gradient_Boosting.png)
+**Key Findings from Coefficients:**
+
+1. **Base Fare (Most Important)**: The base fare component has the highest coefficient, indicating that airlines' fundamental pricing strategy is the primary determinant of total fare.
+
+2. **Tax & Surcharge**: Second most important feature, showing that additional charges significantly impact the final price.
+
+3. **Days Before Departure**: Booking timing plays a crucial role, with fares typically increasing as departure date approaches.
+
+4. **Duration**: Longer flight durations correlate with higher fares, likely due to increased operational costs.
+
+5. **Departure Month**: Seasonal variations in pricing are captured through monthly patterns.
+
+6. **Aircraft Type**: Different aircraft types (Boeing 787, Airbus A350, etc.) influence pricing due to varying operational costs.
+
+7. **Airline**: Specific airline pricing strategies contribute to fare differences.
+
+8. **Class**: Business and First Class tickets command premium pricing compared to Economy.
 
 **Key Findings from Feature Importance:**
 

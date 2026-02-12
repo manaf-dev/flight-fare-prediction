@@ -3,15 +3,15 @@ Streamlit App for Flight Fare Prediction
 Interactive web application for predicting flight fares using the trained Gradient Boosting model.
 """
 
+import importlib
 import os
 import sys
-import importlib
 from datetime import datetime, time
 
 import streamlit as st
 
-from src.config import VISUALIZATIONS_PATH
 from src import inference as inference_module
+from src.config import VISUALIZATIONS_PATH
 
 # Add src to path for imports
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -324,7 +324,6 @@ def main():
         """
     <div style='text-align: center; color: #666;'>
         <p>Built with Streamlit | Flight Fare Prediction Project</p>
-        <p>Copyright 2026 - Advanced Machine Learning for Business Intelligence</p>
     </div>
     """,
         unsafe_allow_html=True,

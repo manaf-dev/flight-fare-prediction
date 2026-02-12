@@ -165,14 +165,14 @@ The pipeline trains and compares multiple regression models:
 
 ### Model Performance Comparison
 ```
-                Model        R2          MAE         RMSE
-0   Ridge Regression  0.996889  1703.189514  4553.767361
-1   Lasso Regression  0.996889  1697.981275  4553.884739
-2      Random Forest  0.999953    63.927418   557.927353
-3  Gradient Boosting  0.999978   185.224515   381.357713
+                Model        R2         MAE        RMSE
+0   Ridge Regression  1.000000    3.972636    4.998259
+1   Lasso Regression  0.999995  137.251780  174.587412
+2      Random Forest  0.999998   19.434731  103.547127
+3  Gradient Boosting  0.999995  105.549143  171.138741
 ```
 
-**Best Model**: Gradient Boosting (R² = 0.999979, MAE = 184.78 BDT)
+**Best Model**: Ridge Regression (R² = 1.0000, MAE = 3.97 BDT)
 
 ### Key Insights
 
