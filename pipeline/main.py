@@ -79,8 +79,11 @@ def main():
     logger.info("Step 6: Model interpretation and insights")
     plot_feature_importance(best_model, feature_names, best_model_name)
 
-    # Save the best model
-    save_model(best_model, best_model_name)
+    # Save all trained models
+    logger.info("Saving all trained models...")
+    save_model(baseline_model, "Baseline Linear Regression")
+    for model_name, model in advanced_models.items():
+        save_model(model, model_name)
 
     logger.info("Pipeline completed successfully!")
 

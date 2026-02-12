@@ -10,13 +10,13 @@ from datetime import datetime, time
 
 import streamlit as st
 
+from src.config import VISUALIZATIONS_PATH
+from src import inference as inference_module
+
 # Add src to path for imports
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
-
-from src.config import VISUALIZATIONS_PATH
-from src import inference as inference_module
 
 inference_module = importlib.reload(inference_module)
 
@@ -315,7 +315,7 @@ def main():
             caption="Feature Importance - Gradient Boosting Model",
             width="content",
         )
-    except:
+    except Exception:
         st.info("Feature importance visualization will be displayed here.")
 
     # Footer
