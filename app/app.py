@@ -5,20 +5,25 @@ Interactive web application for predicting flight fares using the trained Gradie
 
 import os
 import sys
+import importlib
 from datetime import datetime, time
 
 import streamlit as st
 
 # Add src to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from src.config import VISUALIZATIONS_PATH
-from src.inference import predict_fare
+from src import inference as inference_module
+
+inference_module = importlib.reload(inference_module)
 
 # Page configuration
 st.set_page_config(
     page_title="Flight Fare Predictor",
-    page_icon="✈️",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -63,7 +68,7 @@ st.markdown(
 def main():
     # Header
     st.markdown(
-        '<div class="main-header">✈️ Flight Fare Predictor</div>', unsafe_allow_html=True
+        '<div class="main-header">Flight Fare Predictor</div>', unsafe_allow_html=True
     )
     st.markdown("### Predict flight fares using advanced machine learning")
 
@@ -176,7 +181,7 @@ def main():
     days_before = st.sidebar.slider("Days Before Departure", 1, 90, 30)
 
     # Prediction button
-    if st.sidebar.button("🚀 Predict Fare", type="primary"):
+    if st.sidebar.button("Predict Fare", type="primary"):
         # Prepare input data
         input_data = {
             "airline": airline,
@@ -195,16 +200,16 @@ def main():
 
         try:
             # Make prediction
-            with st.spinner("🔮 Predicting fare..."):
-                predicted_fare = predict_fare(input_data)
+            with st.spinner("Predicting fare..."):
+                predicted_fare = inference_module.predict_fare(input_data)
 
             # Display results
-            st.markdown("## 🎯 Prediction Results")
+            st.markdown("## Prediction Results")
 
             # Main prediction box
             st.markdown('<div class="prediction-box">', unsafe_allow_html=True)
             st.markdown("### Predicted Total Fare")
-            st.markdown(f"## ৳ {predicted_fare:,.0f}")
+            st.markdown(f"## BDT {predicted_fare:,.0f}")
             st.markdown("*Bangladeshi Taka (BDT)*")
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -213,12 +218,12 @@ def main():
 
             with col1:
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                st.metric("Base Fare", f"৳ {base_fare:,.0f}")
+                st.metric("Base Fare", f"BDT {base_fare:,.0f}")
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with col2:
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                st.metric("Tax & Surcharge", f"৳ {tax_surcharge:,.0f}")
+                st.metric("Tax & Surcharge", f"BDT {tax_surcharge:,.0f}")
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with col3:
@@ -227,7 +232,7 @@ def main():
                 difference = predicted_fare - actual_total
                 st.metric(
                     "Difference",
-                    f"৳ {difference:,.0f}",
+                    f"BDT {difference:,.0f}",
                     delta=f"{difference / actual_total * 100:.1f}%"
                     if actual_total > 0
                     else "N/A",
@@ -235,7 +240,7 @@ def main():
                 st.markdown("</div>", unsafe_allow_html=True)
 
             # Insights
-            st.markdown("### 💡 Insights")
+            st.markdown("### Insights")
 
             # Route popularity
             route_popularity = {
@@ -249,24 +254,24 @@ def main():
             route_key = (source, destination)
             if route_key in route_popularity:
                 st.info(
-                    f"📊 This route is **{route_popularity[route_key]}** - expect higher demand and potentially higher fares."
+                    f"This route is **{route_popularity[route_key]}** - expect higher demand and potentially higher fares."
                 )
 
             # Seasonal insights
             month = departure_date.month
             if month in [11, 12, 1]:  # Winter holidays
                 st.info(
-                    "❄️ **Winter Holiday Season** - Expect higher fares due to increased travel demand."
+                    "**Winter Holiday Season** - Expect higher fares due to increased travel demand."
                 )
             elif month in [4, 5]:  # Eid
                 st.info(
-                    "🕌 **Eid Season** - Religious holidays may cause fare fluctuations."
+                    "**Eid Season** - Religious holidays may cause fare fluctuations."
                 )
             elif month in [6, 7, 8]:  # Hajj
-                st.info("🕋 **Hajj Season** - Peak season with highest fares.")
+                st.info("**Hajj Season** - Peak season with highest fares.")
             else:
                 st.info(
-                    "✅ **Regular Season** - Generally lower fares with better deals available."
+                    "**Regular Season** - Generally lower fares with better deals available."
                 )
 
             # Airline insights
@@ -278,15 +283,15 @@ def main():
             }
 
             if airline in airline_insights:
-                st.info(f"🏢 **{airline}**: {airline_insights[airline]}")
+                st.info(f"**{airline}**: {airline_insights[airline]}")
 
         except Exception as e:
-            st.error(f"❌ Error making prediction: {str(e)}")
+            st.error(f"Error making prediction: {str(e)}")
             st.info("Please check your input values and try again.")
 
     # Model Information
     st.markdown("---")
-    st.markdown("## 📊 Model Information")
+    st.markdown("## Model Information")
 
     col1, col2, col3 = st.columns(3)
 
@@ -295,7 +300,7 @@ def main():
         st.metric("Training Accuracy", "99.998%")
 
     with col2:
-        st.metric("Average Error", "৳ 185")
+        st.metric("Average Error", "BDT 185")
         st.metric("Dataset Size", "57,000 flights")
 
     with col3:
@@ -303,7 +308,7 @@ def main():
         st.metric("Last Updated", "Feb 2026")
 
     # Feature Importance Visualization
-    st.markdown("### 🎯 Key Factors Influencing Fare")
+    st.markdown("### Key Factors Influencing Fare")
     try:
         st.image(
             f"{VISUALIZATIONS_PATH}/feature_importance_Gradient_Boosting.png",
@@ -318,8 +323,8 @@ def main():
     st.markdown(
         """
     <div style='text-align: center; color: #666;'>
-        <p>Built with ❤️ using Streamlit | Flight Fare Prediction Project</p>
-        <p>© 2026 - Advanced Machine Learning for Business Intelligence</p>
+        <p>Built with Streamlit | Flight Fare Prediction Project</p>
+        <p>Copyright 2026 - Advanced Machine Learning for Business Intelligence</p>
     </div>
     """,
         unsafe_allow_html=True,
