@@ -122,8 +122,9 @@ def feature_engineering(df):
     df["calculated_total_fare"] = df["base_fare_bdt"] + df["tax_and_surcharge_bdt"]
     fare_diff = (df["total_fare_bdt"] - df["calculated_total_fare"]).abs()
     if fare_diff.max() > 1:  # Allow small differences due to rounding
+        df["total_fare_bdt"] = df["calculated_total_fare"]
         logger.warning(
-            "Total Fare doesn't match Base Fare + Tax in some rows. Using provided Total Fare."
+            "Total Fare doesn't match Base Fare + Tax in some rows. Replaced them with calculated_total_fare"
         )
 
     # Drop unnecessary columns
