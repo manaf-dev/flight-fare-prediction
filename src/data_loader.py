@@ -1,105 +1,51 @@
-"""
-Data loading module for the Flight Fare Prediction project.
-Handles loading and initial inspection of the dataset.
-"""
+"""Data loading module for the Flight Fare Prediction project."""
+
+import re
 
 import pandas as pd
 
-from src.config import DATA_PATH
+from src.config import DATA_PATH, DATE_COLS
+from src.data_preprocessing import preprocess_dataframe
 from src.utils import get_logger
 
 logger = get_logger(__name__)
 
 
-def load_data():
-    """
-    Loads the flight price dataset from CSV.
+def _to_snake_case(value: str) -> str:
+    cleaned = value.strip().lower().replace("&", " and ")
+    cleaned = re.sub(r"[^a-z0-9]+", "_", cleaned)
+    return re.sub(r"_+", "_", cleaned).strip("_")
 
-    Returns:
-        pd.DataFrame: The loaded dataset.
-    """
+
+def load_data(path=DATA_PATH):
+    """Load raw CSV robustly, normalize headers, and log basic diagnostics."""
     try:
-        df = pd.read_csv(DATA_PATH)
-        logger.info(f"Dataset loaded successfully. Shape: {df.shape}")
-        # Clean column names
-        df = clean_column_names(df)
-        # Validate required columns
-        required_columns = [
-            "airline",
-            "source",
-            "destination",
-            "departure_date_and_time",
-            "arrival_date_and_time",
-            "duration_hrs",
-            "stopovers",
-            "aircraft_type",
-            "class",
-            "booking_source",
-            "base_fare_bdt",
-            "tax_and_surcharge_bdt",
-            "total_fare_bdt",
-            "seasonality",
-            "days_before_departure",
-        ]
-        validate_required_columns(df, required_columns)
+        df = pd.read_csv(path)
+        df.columns = [_to_snake_case(col) for col in df.columns]
+
+        for date_col in DATE_COLS + ["departure_date_and_time", "arrival_date_and_time"]:
+            if date_col in df.columns:
+                df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+
+        logger.info("Dataset loaded from %s", path)
+        logger.info("Raw shape: %s", df.shape)
+        logger.info("Null counts:\n%s", df.isnull().sum().sort_values(ascending=False))
         return df
-    except Exception as e:
-        logger.error(f"Error loading data: {e}")
+    except Exception:
+        logger.exception("Error loading dataset from %s", path)
         raise
 
 
-def clean_column_names(df):
-    """
-    Cleans column names by removing spaces and special characters.
-
-    Args:
-        df (pd.DataFrame): The dataset.
-
-    Returns:
-        pd.DataFrame: Dataset with cleaned column names.
-    """
-    df.columns = (
-        df.columns.str.strip()
-        .str.replace(" ", "_")
-        .str.replace("(", "")
-        .str.replace(")", "")
-        .str.replace("&", "and")
-        .str.lower()
-    )
-    logger.info("Column names cleaned.")
-    return df
-
-
-def validate_required_columns(df, required_columns):
-    """
-    Validates that required columns are present in the dataset.
-
-    Args:
-        df (pd.DataFrame): The dataset.
-        required_columns (list): List of required column names.
-
-    Raises:
-        ValueError: If any required column is missing.
-    """
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        logger.error(f"Missing required columns: {missing_columns}")
-        raise ValueError(f"Missing required columns: {missing_columns}")
-    logger.info("All required columns are present.")
+def get_dataframe(path=DATA_PATH):
+    """Return cleaned dataframe with canonical names/features for downstream tasks."""
+    raw_df = load_data(path)
+    clean_df = preprocess_dataframe(raw_df, inference_mode=False)
+    logger.info("Canonical dataframe shape: %s", clean_df.shape)
+    return clean_df
 
 
 def inspect_data(df):
-    """
-    Performs initial inspection of the dataset.
-
-    Args:
-        df (pd.DataFrame): The dataset to inspect.
-    """
-    logger.info("Dataset Info:")
-    logger.info(df.info())
-    logger.info("\nDataset Description:")
-    logger.info(df.describe())
-    logger.info("\nFirst 5 rows:")
-    logger.info(df.head())
-    logger.info(f"\nMissing values:\n{df.isnull().sum()}")
-    logger.info(f"\nData types:\n{df.dtypes}")
+    """Log quick inspection statistics."""
+    logger.info("Dataset info:\n%s", df.info())
+    logger.info("Head:\n%s", df.head().to_string())
+    logger.info("Describe:\n%s", df.describe(include="all").transpose().head(30).to_string())

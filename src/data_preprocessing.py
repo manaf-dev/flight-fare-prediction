@@ -1,205 +1,195 @@
-"""
-Data preprocessing module for the Flight Fare Prediction project.
-Handles data cleaning, feature engineering, and encoding.
-"""
+"""Data preprocessing and feature engineering utilities."""
+
+import re
+from typing import Dict
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from src.config import CATEGORICAL_FEATURES, NUMERICAL_FEATURES
+from src.config import DATE_COLS, LEAKAGE_COLS, TARGET_COL
 from src.utils import get_logger
 
 logger = get_logger(__name__)
 
+CANONICAL_COLS = [
+    "airline",
+    "source",
+    "destination",
+    "stopovers",
+    "aircraft_type",
+    "class",
+    "booking_source",
+    "seasonality",
+    "departure_datetime",
+    "arrival_datetime",
+    "duration_hrs",
+    "days_before_departure",
+    TARGET_COL,
+]
 
-def clean_data(df):
-    """
-    Cleans the dataset by handling missing values and correcting invalid entries.
+COLUMN_ALIASES: Dict[str, str] = {
+    "airline": "airline",
+    "source": "source",
+    "destination": "destination",
+    "stopovers": "stopovers",
+    "aircraft_type": "aircraft_type",
+    "class": "class",
+    "booking_source": "booking_source",
+    "seasonality": "seasonality",
+    "departure_date_and_time": "departure_datetime",
+    "departure_datetime": "departure_datetime",
+    "arrival_date_and_time": "arrival_datetime",
+    "arrival_datetime": "arrival_datetime",
+    "duration_hrs": "duration_hrs",
+    "duration_hrs_": "duration_hrs",
+    "duration": "duration_hrs",
+    "days_before_departure": "days_before_departure",
+    "total_fare_bdt": TARGET_COL,
+    "total_fare": TARGET_COL,
+    "base_fare_bdt": "base_fare_bdt",
+    "tax_and_surcharge_bdt": "tax_and_surcharge_bdt",
+}
 
-    Args:
-        df (pd.DataFrame): Raw dataset.
+CATEGORICAL_BASE = [
+    "airline",
+    "source",
+    "destination",
+    "stopovers",
+    "aircraft_type",
+    "class",
+    "booking_source",
+    "seasonality",
+]
+NUMERICAL_BASE = ["duration_hrs", "days_before_departure"]
 
-    Returns:
-        pd.DataFrame: Cleaned dataset.
-    """
-    logger.info("Starting data cleaning...")
 
-    # Remove duplicates
-    initial_shape = df.shape
-    df = df.drop_duplicates()
-    logger.info(f"Removed {initial_shape[0] - df.shape[0]} duplicate rows")
 
-    # Handle missing values
-    # For numerical columns, impute with median
-    numerical_cols = df.select_dtypes(include=[np.number]).columns
-    for col in numerical_cols:
-        if df[col].isnull().sum() > 0:
-            median_val = df[col].median()
-            df[col].fillna(median_val, inplace=True)
-            logger.info(
-                f"Imputed {df[col].isnull().sum()} missing values in {col} with median: {median_val}"
-            )
+def _snake_case(name: str) -> str:
+    cleaned = name.strip().lower().replace("&", " and ")
+    cleaned = re.sub(r"[^a-z0-9]+", "_", cleaned)
+    return re.sub(r"_+", "_", cleaned).strip("_")
 
-    # For categorical columns, impute with mode
-    categorical_cols = df.select_dtypes(include=["object"]).columns
-    for col in categorical_cols:
-        if df[col].isnull().sum() > 0:
-            mode_val = df[col].mode()[0]
-            df[col].fillna(mode_val, inplace=True)
-            logger.info(
-                f"Imputed {df[col].isnull().sum()} missing values in {col} with mode: {mode_val}"
-            )
 
-    # Correct invalid entries
-    # Ensure fares are positive
-    fare_cols = ["base_fare_bdt", "tax_and_surcharge_bdt", "total_fare_bdt"]
-    for col in fare_cols:
-        if col in df.columns:
-            negative_count = (df[col] < 0).sum()
-            if negative_count > 0:
-                df = df[df[col] >= 0]
-                logger.info(f"Removed {negative_count} rows with negative {col}")
 
-    # Convert date columns to datetime
-    date_cols = ["departure_date_and_time", "arrival_date_and_time"]
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+def _to_numeric(series: pd.Series) -> pd.Series:
+    as_str = series.astype(str)
+    as_str = as_str.str.replace(",", "", regex=False)
+    as_str = as_str.str.replace(r"[^0-9.\-]", "", regex=True)
+    return pd.to_numeric(as_str, errors="coerce")
 
-    # Drop rows with invalid dates
-    invalid_dates = df[date_cols].isnull().any(axis=1).sum()
-    if invalid_dates > 0:
-        df = df.dropna(subset=date_cols)
-        logger.info(f"Removed {invalid_dates} rows with invalid dates")
 
-    logger.info(f"Data cleaning completed. Final shape: {df.shape}")
+
+def _drop_junk_columns(df: pd.DataFrame) -> pd.DataFrame:
+    junk = [col for col in df.columns if col.startswith("unnamed") or col in {"index", "level_0"}]
+    if junk:
+        logger.info("Dropping junk/index columns: %s", junk)
+        df = df.drop(columns=junk, errors="ignore")
     return df
 
 
-def feature_engineering(df):
-    """
-    Performs feature engineering on the cleaned dataset.
 
-    Args:
-        df (pd.DataFrame): Cleaned dataset.
+def _rename_to_canonical(df: pd.DataFrame) -> pd.DataFrame:
+    renamed = {col: COLUMN_ALIASES[col] for col in df.columns if col in COLUMN_ALIASES}
+    if renamed:
+        df = df.rename(columns=renamed)
+    return df
 
-    Returns:
-        pd.DataFrame: Dataset with engineered features.
-    """
-    logger.info("Starting feature engineering...")
 
-    # Extract date features
-    df["departure_date_and_time"] = pd.to_datetime(df["departure_date_and_time"])
-    df["arrival_date_and_time"] = pd.to_datetime(df["arrival_date_and_time"])
 
-    df["departure_month"] = df["departure_date_and_time"].dt.month
-    df["departure_day"] = df["departure_date_and_time"].dt.day
-    df["departure_hour"] = df["departure_date_and_time"].dt.hour
-    df["departure_weekday"] = df["departure_date_and_time"].dt.weekday
+def preprocess_dataframe(df: pd.DataFrame, inference_mode: bool = False) -> pd.DataFrame:
+    """Clean and engineer features in a training/inference-compatible way."""
+    if df is None or df.empty:
+        raise ValueError("Input dataframe is empty.")
 
-    # Create season based on month
-    def get_season(month):
-        if month in [3, 4, 5]:
-            return "Spring"
-        elif month in [6, 7, 8]:
-            return "Summer"
-        elif month in [9, 10, 11]:
-            return "Autumn"
-        else:
-            return "Winter"
+    out = df.copy()
+    out.columns = [_snake_case(col) for col in out.columns]
+    out = _drop_junk_columns(out)
+    out = _rename_to_canonical(out)
 
-    df["season"] = df["departure_month"].apply(get_season)
+    # Ensure expected columns exist for a stable schema.
+    for col in CANONICAL_COLS:
+        if col not in out.columns:
+            out[col] = np.nan
 
-    # Calculate duration in hours if not present or recalculate
-    if "duration_hrs" not in df.columns or df["duration_hrs"].isnull().any():
-        df["duration_hrs"] = (
-            df["arrival_date_and_time"] - df["departure_date_and_time"]
-        ).dt.total_seconds() / 3600
+    # Parse datetime columns.
+    for col in DATE_COLS:
+        out[col] = pd.to_datetime(out[col], errors="coerce")
 
-    # Ensure Total Fare is correct
-    df["calculated_total_fare"] = df["base_fare_bdt"] + df["tax_and_surcharge_bdt"]
-    fare_diff = (df["total_fare_bdt"] - df["calculated_total_fare"]).abs()
-    if fare_diff.max() > 1:  # Allow small differences due to rounding
-        df["total_fare_bdt"] = df["calculated_total_fare"]
-        logger.warning(
-            "Total Fare doesn't match Base Fare + Tax in some rows. Replaced them with calculated_total_fare"
-        )
+    # Numeric conversions.
+    numeric_cols = ["duration_hrs", "days_before_departure", TARGET_COL] + LEAKAGE_COLS
+    for col in numeric_cols:
+        if col in out.columns:
+            out[col] = _to_numeric(out[col])
 
-    # Drop unnecessary columns
-    cols_to_drop = [
-        "source_name",
-        "destination_name",
-        "departure_date_and_time",
-        "arrival_date_and_time",
-        "calculated_total_fare",
+    # Fill missing target values ONLY if target is missing and both components exist.
+    if TARGET_COL in out.columns and all(col in out.columns for col in LEAKAGE_COLS):
+        missing_target = out[TARGET_COL].isna()
+        if missing_target.any():
+            derived_target = out[LEAKAGE_COLS[0]] + out[LEAKAGE_COLS[1]]
+            out.loc[missing_target, TARGET_COL] = derived_target.loc[missing_target]
+            logger.info("Filled %s missing target values using base+tax components", int(missing_target.sum()))
+
+    # Feature engineering from departure datetime.
+    out["departure_month"] = out["departure_datetime"].dt.month
+    out["departure_day"] = out["departure_datetime"].dt.day
+    out["departure_hour"] = out["departure_datetime"].dt.hour
+    out["departure_weekday"] = out["departure_datetime"].dt.weekday
+    out["is_weekend"] = out["departure_weekday"].isin([5, 6]).astype(float)
+    out["is_peak_hour"] = out["departure_hour"].isin([6, 7, 8, 9, 17, 18, 19, 20, 21]).astype(float)
+
+    out["source"] = out["source"].astype(str)
+    out["destination"] = out["destination"].astype(str)
+    out["route"] = out["source"].fillna("Unknown") + "_" + out["destination"].fillna("Unknown")
+    out["route_frequency"] = out["route"].map(out["route"].value_counts(dropna=False)).astype(float)
+
+    # Missing values.
+    for col in CATEGORICAL_BASE + ["route"]:
+        out[col] = out[col].replace({"nan": np.nan, "None": np.nan}).fillna("Unknown")
+
+    num_fill_cols = [
+        "duration_hrs",
+        "days_before_departure",
+        "departure_month",
+        "departure_day",
+        "departure_hour",
+        "departure_weekday",
+        "is_weekend",
+        "is_peak_hour",
+        "route_frequency",
     ]
-    df = df.drop(columns=[col for col in cols_to_drop if col in df.columns])
+    for col in num_fill_cols:
+        if col in out.columns:
+            if inference_mode:
+                fallback = out[col].median() if out[col].notna().any() else 0.0
+            else:
+                fallback = out[col].median()
+            out[col] = out[col].fillna(fallback)
 
-    logger.info(f"Feature engineering completed. New shape: {df.shape}")
-    return df
+    # Validate negatives.
+    invalid_duration = (out["duration_hrs"] < 0).sum()
+    if invalid_duration > 0:
+        if inference_mode:
+            out.loc[out["duration_hrs"] < 0, "duration_hrs"] = 0
+            logger.info("Clipped %s negative duration values in inference mode", int(invalid_duration))
+        else:
+            out = out[out["duration_hrs"] >= 0]
+            logger.info("Removed %s rows with negative duration", int(invalid_duration))
 
+    if TARGET_COL in out.columns:
+        invalid_target = (out[TARGET_COL] < 0).sum()
+        if invalid_target > 0:
+            if inference_mode:
+                out.loc[out[TARGET_COL] < 0, TARGET_COL] = np.nan
+            else:
+                out = out[out[TARGET_COL] >= 0]
+                logger.info("Removed %s rows with negative target fare", int(invalid_target))
 
-def encode_and_scale(df):
-    """
-    Encodes categorical variables and scales numerical features.
+    # Training mode: require valid datetime and target.
+    if not inference_mode:
+        before = len(out)
+        out = out.dropna(subset=["departure_datetime", TARGET_COL])
+        dropped = before - len(out)
+        if dropped > 0:
+            logger.info("Dropped %s rows with invalid departure datetime/target", dropped)
 
-    Args:
-        df (pd.DataFrame): Dataset with engineered features.
-
-    Returns:
-        tuple: (processed_df, scaler, encoders)
-    """
-    logger.info("Starting encoding and scaling...")
-
-    # Separate features and target
-    target = "total_fare_bdt"
-    X = df.drop(columns=[target])
-    y = df[target]
-
-    # Define categorical and numerical features
-    categorical_features = [col for col in CATEGORICAL_FEATURES if col in X.columns]
-    numerical_features = [col for col in NUMERICAL_FEATURES if col in X.columns]
-
-    logger.info(f"Categorical features: {categorical_features}")
-    logger.info(f"Numerical features: {numerical_features}")
-
-    # Create preprocessing pipeline
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", StandardScaler(), numerical_features),
-            (
-                "cat",
-                OneHotEncoder(drop="first", sparse_output=False),
-                categorical_features,
-            ),
-        ]
-    )
-
-    # Fit and transform
-    X_processed = preprocessor.fit_transform(X)
-
-    # Get feature names
-    cat_encoder = preprocessor.named_transformers_["cat"]
-    cat_feature_names = []
-    for i, col in enumerate(categorical_features):
-        categories = cat_encoder.categories_[i][1:]  # Drop first category
-        cat_feature_names.extend([f"{col}_{cat}" for cat in categories])
-
-    feature_names = numerical_features + cat_feature_names
-
-    # Create processed DataFrame
-    processed_df = pd.DataFrame(X_processed, columns=feature_names)
-    processed_df[target] = y.values
-
-    logger.info(
-        f"Encoding and scaling completed. Processed shape: {processed_df.shape}"
-    )
-    # describe df
-    logger.info(f"Processed DataFrame:\n{processed_df.describe()}")
-    return (
-        processed_df,
-        preprocessor.named_transformers_["num"],
-        preprocessor.named_transformers_["cat"],
-    )
+    return out.reset_index(drop=True)
