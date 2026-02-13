@@ -1,0 +1,114 @@
+{
+  "training_timestamp": "2026-02-13T15:40:17.887100Z",
+  "target_column": "total_fare_bdt",
+  "expected_input_schema": [
+    "airline",
+    "source",
+    "destination",
+    "stopovers",
+    "aircraft_type",
+    "class",
+    "booking_source",
+    "seasonality",
+    "route",
+    "duration_hrs",
+    "days_before_departure",
+    "departure_month",
+    "departure_day",
+    "departure_hour",
+    "departure_weekday",
+    "is_weekend",
+    "is_peak_hour",
+    "route_frequency"
+  ],
+  "categorical_features": [
+    "airline",
+    "source",
+    "destination",
+    "stopovers",
+    "aircraft_type",
+    "class",
+    "booking_source",
+    "seasonality",
+    "route"
+  ],
+  "numerical_features": [
+    "duration_hrs",
+    "days_before_departure",
+    "departure_month",
+    "departure_day",
+    "departure_hour",
+    "departure_weekday",
+    "is_weekend",
+    "is_peak_hour",
+    "route_frequency"
+  ],
+  "leakage_columns_excluded": [
+    "base_fare_bdt",
+    "tax_and_surcharge_bdt"
+  ],
+  "best_model": "HistGradientBoosting_tuned",
+  "test_size": 0.2,
+  "top_features": [
+    {
+      "feature": "aircraft_type",
+      "importance": 0.8605916264190793
+    },
+    {
+      "feature": "class",
+      "importance": 0.6464678816522776
+    },
+    {
+      "feature": "destination",
+      "importance": 0.11567874803697512
+    },
+    {
+      "feature": "days_before_departure",
+      "importance": 0.019793494011748524
+    },
+    {
+      "feature": "seasonality",
+      "importance": 0.0055096475228320506
+    },
+    {
+      "feature": "stopovers",
+      "importance": 0.0010560577600409403
+    },
+    {
+      "feature": "route_frequency",
+      "importance": 0.0005257111500292621
+    },
+    {
+      "feature": "airline",
+      "importance": 0.0003327626954874541
+    },
+    {
+      "feature": "departure_month",
+      "importance": 0.00016677665962785415
+    },
+    {
+      "feature": "departure_weekday",
+      "importance": 0.00012529066248938568
+    },
+    {
+      "feature": "duration_hrs",
+      "importance": 0.00011907321381323665
+    },
+    {
+      "feature": "is_weekend",
+      "importance": 0.0
+    },
+    {
+      "feature": "is_peak_hour",
+      "importance": -1.5830757941359685e-05
+    },
+    {
+      "feature": "departure_hour",
+      "importance": -2.2306081917844445e-05
+    },
+    {
+      "feature": "departure_day",
+      "importance": -0.00023975271505811692
+    }
+  ]
+}

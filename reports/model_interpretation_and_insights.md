@@ -1,180 +1,110 @@
-# Model Interpretation & Insights Report
+# Model Interpretation & Insights
 
 ## Executive Summary
 
-This report provides a comprehensive analysis of the Flight Fare Prediction model's performance, feature importance, and business insights derived from the machine learning pipeline. The Gradient Boosting model achieved exceptional performance with R² = 0.999979, demonstrating the ability to accurately predict flight fares based on various flight and temporal characteristics.
+A leakage-free, time-aware modeling workflow was implemented for flight fare prediction.
 
-## 1. Feature Importance Analysis
+- Target: `total_fare_bdt`
+- Leakage predictors excluded from modeling: `base_fare_bdt`, `tax_and_surcharge_bdt`
+- Chronological holdout: first 80% train, last 20% test
+- Cross-validation: `TimeSeriesSplit(n_splits=5)` on training window
+- Best model: `HistGradientBoosting_tuned`
 
-### Linear Model: Ridge Regression
+## Why leakage mattered
 
-The Ridge Regression model, our best-performing algorithm, provides interpretable coefficients that reveal the key drivers of flight fare variations. The coefficients show the linear relationship between features and fare predictions.
+In this dataset, `total_fare_bdt` is largely composed of base fare plus surcharge components. Using those components as predictors creates target leakage and can make metrics look unrealistically perfect.
 
-**Key Findings from Coefficients:**
+To fix this:
 
-1. **Base Fare (Most Important)**: The base fare component has the highest coefficient, indicating that airlines' fundamental pricing strategy is the primary determinant of total fare.
+- Base and surcharge were removed from predictors.
+- They are only allowed for optional target filling when target is missing.
+- Final feature matrix is asserted to exclude leakage columns and target column.
 
-2. **Tax & Surcharge**: Second most important feature, showing that additional charges significantly impact the final price.
+## Modeling setup
 
-3. **Days Before Departure**: Booking timing plays a crucial role, with fares typically increasing as departure date approaches.
+### Candidate models
 
-4. **Duration**: Longer flight durations correlate with higher fares, likely due to increased operational costs.
+- Ridge
+- Lasso
+- RandomForestRegressor
+- HistGradientBoostingRegressor
 
-5. **Departure Month**: Seasonal variations in pricing are captured through monthly patterns.
+### Preprocessing and features
 
-6. **Aircraft Type**: Different aircraft types (Boeing 787, Airbus A350, etc.) influence pricing due to varying operational costs.
+- Column normalization and canonical mapping
+- Missing value handling:
+  - Categorical -> `Unknown`
+  - Numerical -> median
+- Engineered features:
+  - `departure_month`, `departure_day`, `departure_hour`, `departure_weekday`
+  - `is_weekend`, `is_peak_hour`
+  - `route`, `route_frequency`
 
-7. **Airline**: Specific airline pricing strategies contribute to fare differences.
+### Validation strategy
 
-8. **Class**: Business and First Class tickets command premium pricing compared to Economy.
+- Holdout split is chronological by `departure_datetime`
+- CV uses `TimeSeriesSplit` to avoid future leakage across folds
+- Metrics: `R2`, `MAE`, `RMSE`
 
-**Key Findings from Feature Importance:**
+## Final model comparison (holdout)
 
-1. **Base Fare (Most Important)**: The base fare component has the highest importance, indicating that airlines' fundamental pricing strategy is the primary determinant of total fare.
+| Model | R2 | MAE | RMSE |
+|---|---:|---:|---:|
+| HistGradientBoosting_tuned | 0.6780 | 30,618.47 | 50,605.68 |
+| HistGradientBoosting | 0.6756 | 30,707.98 | 50,787.26 |
+| RandomForest | 0.6519 | 32,200.92 | 52,612.18 |
+| Lasso | 0.5700 | 42,812.36 | 58,474.33 |
+| Ridge | 0.5699 | 42,808.50 | 58,480.43 |
 
-2. **Tax & Surcharge**: Second most important feature, showing that additional charges significantly impact the final price.
+Best model selection rationale:
 
-3. **Days Before Departure**: Booking timing plays a crucial role, with fares typically increasing as departure date approaches.
+- Highest holdout R2 under leakage-free and time-aware evaluation
+- Stable performance relative to untuned baseline
 
-4. **Duration**: Longer flight durations correlate with higher fares, likely due to increased operational costs.
+## Cross-validation summary
 
-5. **Departure Month**: Seasonal variations in pricing are captured through monthly patterns.
+| Model | CV R2 mean | CV MAE mean | CV RMSE mean |
+|---|---:|---:|---:|
+| HistGradientBoosting_tuned | 0.6694 | - | - |
+| HistGradientBoosting | 0.6675 | 27,512.66 | 45,466.88 |
+| RandomForest | 0.6504 | 28,899.33 | 46,631.16 |
+| Ridge | 0.5624 | 40,036.06 | 52,158.38 |
+| Lasso | 0.5605 | 40,106.36 | 52,279.11 |
 
-6. **Aircraft Type**: Different aircraft types (Boeing 787, Airbus A350, etc.) influence pricing due to varying operational costs.
+## Top model drivers
 
-7. **Airline**: Specific airline pricing strategies contribute to fare differences.
+Top 10 drivers from `models/model_metadata.json`:
 
-8. **Class**: Business and First Class tickets command premium pricing compared to Economy.
+1. `aircraft_type`
+2. `class`
+3. `destination`
+4. `days_before_departure`
+5. `seasonality`
+6. `stopovers`
+7. `route_frequency`
+8. `airline`
+9. `departure_month`
+10. `departure_weekday`
 
-### Linear Model Coefficients (Ridge Regression)
+Interpretation notes:
 
-For comparison, the Ridge Regression model provides interpretable coefficients:
+- `days_before_departure` confirms booking timing impact.
+- `seasonality`, route/destination, and stopovers capture demand and itinerary effects.
+- Cabin class and airline/aircraft variables encode service tier and pricing strategy.
 
-- **Positive Coefficients**: Features that increase fare when their values increase
-  - Base Fare: +0.85 (strongest positive impact)
-  - Tax & Surcharge: +0.12
-  - Days Before Departure: +0.08
-  - Duration: +0.06
+## Inference and deployment alignment
 
-- **Negative Coefficients**: Features that decrease fare when their values increase
-  - Certain categorical features show negative relationships due to reference encoding
+- A single artifact (`models/best_model_pipeline.pkl`) is used for serving.
+- Inference reuses shared preprocessing logic to maintain feature compatibility.
+- Expected inference schema and training timestamp are tracked in `models/model_metadata.json`.
 
-## 2. Business Insights
+## EDA and reporting perspective
 
-### What Factors Most Influence Fare Prices?
+- Component plots (base + tax vs total) are retained for business explanation only.
+- Modeling excludes these components to preserve correctness.
 
-Based on the feature importance analysis and exploratory data analysis, the primary factors influencing flight fares are:
+## Practical implications
 
-1. **Base Fare Structure**: The foundation pricing set by airlines accounts for the majority of fare variation.
-
-2. **Additional Charges**: Taxes and surcharges add substantial costs, often representing 15-20% of total fare.
-
-3. **Booking Timing**: Last-minute bookings command premium prices, with fares increasing as departure date approaches.
-
-4. **Route Characteristics**: Longer duration flights and international routes have inherently higher costs.
-
-5. **Seasonal Demand**: Peak seasons (Hajj, Eid, Winter Holidays) drive up prices due to increased demand.
-
-6. **Aircraft and Service Quality**: Premium aircraft types and higher service classes justify higher fares.
-
-### How Do Airlines Differ in Pricing Strategy?
-
-**Top 5 Airlines by Average Fare:**
-- Turkish Airlines: BDT 75,547 (Premium positioning)
-- AirAsia: BDT 74,534 (Budget carrier with competitive pricing)
-- Cathay Pacific: BDT 73,325 (Full-service carrier)
-- Thai Airways: BDT 72,846 (Regional premium carrier)
-- Malaysian Airlines: BDT 72,775 (Established international carrier)
-
-**Pricing Strategy Insights:**
-- **Premium Airlines** (Turkish, Cathay Pacific): Focus on high-quality service and comfort, justifying higher fares
-- **Budget Carriers** (AirAsia): Compete on price while maintaining essential services
-- **Regional Carriers**: Balance between cost efficiency and service quality
-
-### Seasonal and Route-Based Fare Variations
-
-**Seasonal Fare Analysis:**
-- Hajj Season: BDT 97,144 (Highest - due to religious pilgrimage demand)
-- Eid Season: BDT 91,560 (High religious holiday demand)
-- Winter Holidays: BDT 79,677 (Tourism and family travel peak)
-- Regular Season: BDT 68,077 (Baseline pricing)
-
-**Most Popular Routes:**
-1. Rajshahi (RJH) → Singapore (SIN): 417 flights
-2. Dhaka (DAC) → Dubai (DXB): 413 flights
-3. Barisal (BZL) → Toronto (YYZ): 410 flights
-
-**Most Expensive Routes:**
-1. Saidpur (SPD) → Bangkok (BKK): BDT 117,952
-2. Cox's Bazar (CXB) → Toronto (YYZ): BDT 117,849
-3. Cox's Bazar (CXB) → London (LHR): BDT 116,668
-
-**Route Insights:**
-- International long-haul routes to North America and Europe command premium pricing
-- Popular tourist destinations (Singapore, Dubai, Bangkok) show high demand
-- Domestic routes maintain more stable, lower pricing
-
-## 3. Communication for Non-Technical Stakeholders
-
-### Key Takeaways
-
-Our advanced machine learning model can predict flight fares with 99.998% accuracy, providing valuable insights for airlines, travel agencies, and passengers to make informed decisions.
-
-### What Drives Flight Prices?
-
-**Primary Factors:**
-- The base price set by airlines (most important)
-- Additional taxes and fees
-- How far in advance you book
-- Flight duration and distance
-- Seasonal demand patterns
-
-**Airline Pricing Strategies:**
-Different airlines have distinct approaches:
-- Premium carriers like Turkish Airlines focus on luxury service
-- Budget airlines like AirAsia prioritize affordability
-- Regional carriers balance quality and cost
-
-### Seasonal Pricing Patterns
-
-Flight prices vary significantly by season:
-- **Peak Season (Hajj)**: 43% higher than regular fares
-- **Holiday Seasons (Eid, Winter)**: 15-25% premium pricing
-- **Regular Periods**: Baseline pricing with best value
-
-### Route-Based Pricing
-
-**High-Demand International Routes:**
-- Routes to major hubs (Dubai, Singapore, London) show consistent high pricing
-- Long-haul flights to North America and Europe command premium fares
-- Popular tourist destinations maintain elevated prices year-round
-
-### Recommendations
-
-**For Airlines:**
-1. **Dynamic Pricing**: Implement AI-driven pricing that adjusts based on demand, seasonality, and booking timing
-2. **Competitive Analysis**: Monitor competitor pricing strategies to maintain market position
-3. **Route Optimization**: Focus on high-margin international routes while optimizing domestic pricing
-
-**For Travel Agencies:**
-1. **Early Booking Incentives**: Encourage advance bookings to secure lower fares
-2. **Seasonal Promotions**: Develop targeted campaigns for off-peak periods
-3. **Route Recommendations**: Guide customers toward cost-effective alternatives
-
-**For Passengers:**
-1. **Book Early**: Secure lowest fares by booking 45-90 days in advance
-2. **Monitor Seasonal Trends**: Plan travel during regular seasons for best value
-3. **Compare Options**: Consider alternative routes and airlines for significant savings
-4. **Flexible Planning**: Build in buffer time for flight changes to avoid last-minute surcharges
-
-### Model Performance Summary
-
-| Model | Accuracy (R²) | Average Error (BDT) |
-|-------|---------------|-------------------|
-| Gradient Boosting | 99.998% | 186 |
-| Random Forest | 99.995% | 64 |
-| Linear Regression | 99.69% | 1,703 |
-
-The Gradient Boosting model provides the most accurate predictions, enabling precise fare forecasting for strategic decision-making.
-
-
+- The updated pipeline provides realistic out-of-time performance estimates.
+- Streamlit now accepts only leakage-free inputs.
+- Reported metrics are suitable for comparing future model iterations consistently.
