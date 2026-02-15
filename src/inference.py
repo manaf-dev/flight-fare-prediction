@@ -1,4 +1,4 @@
-"""Inference module for leakage-free flight fare prediction."""
+"""Inference module for flight fare prediction."""
 
 import json
 from functools import lru_cache

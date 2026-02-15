@@ -1,6 +1,6 @@
 # Flight Fare Prediction
 
-A production-style machine learning project for predicting flight fares in Bangladesh using a leakage-free, time-aware regression pipeline.
+A production-style machine learning project for predicting flight fares in Bangladesh using a time-aware regression pipeline.
 
 
 ## Project overview
@@ -11,7 +11,7 @@ Estimate flight fares from observable booking/flight attributes to support prici
 ### ML task
 - Type: Supervised regression
 - Target: `total_fare_bdt`
-- Modeling features (leakage-free):
+- Modeling features:
   - Categorical: `airline`, `source`, `destination`, `stopovers`, `aircraft_type`, `class`, `booking_source`, `seasonality`, `route`
   - Numerical: `duration_hrs`, `days_before_departure`, `departure_month`, `departure_day`, `departure_hour`, `departure_weekday`, `is_weekend`, `is_peak_hour`, `route_frequency`
 
@@ -88,7 +88,7 @@ Launch:
 streamlit run app/app.py
 ```
 
-UI now uses leakage-free inputs only:
+UI now uses inputs:
 
 - `duration_hrs`, `days_before_departure`
 - `departure_date`, `departure_time`

@@ -1,4 +1,4 @@
-"""Streamlit app for leakage-free flight fare prediction."""
+"""Streamlit app for flight fare prediction."""
 
 import json
 import os
@@ -13,7 +13,6 @@ if PROJECT_ROOT not in sys.path:
 
 from src.config import MODEL_METADATA_PATH, TOP_FEATURES_PLOT_PATH
 from src.inference import predict
-
 
 st.set_page_config(page_title="Flight Fare Predictor", layout="wide")
 
@@ -40,7 +39,7 @@ def _render_insights(days_before_departure, seasonality):
 
 def main():
     st.title("Flight Fare Predictor")
-    st.caption("Leakage-free model: predicts `total_fare_bdt` without base fare and tax inputs.")
+    st.caption("This app predicts the total fare of a flight based on various inputs.")
 
     st.sidebar.header("Flight Inputs")
 

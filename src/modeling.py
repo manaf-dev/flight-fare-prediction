@@ -376,7 +376,7 @@ def write_model_report(metrics_df, metadata, output_path):
             *rows,
             "",
             "## Best Model Rationale",
-            f"Best model: `{metadata.get('best_model', 'N/A')}` selected by highest holdout R2 with leakage-free, time-aware validation.",
+            f"Best model: `{metadata.get('best_model', 'N/A')}` selected by highest holdout R2 with time-aware validation.",
             "",
             "## Top Drivers",
             "Primary drivers include route, days_before_departure, seasonality, class, airline, stopovers, and departure-time features.",

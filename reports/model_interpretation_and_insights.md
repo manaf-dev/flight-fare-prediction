@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-A leakage-free, time-aware modeling workflow was implemented for flight fare prediction.
+A time-aware modeling workflow was implemented for flight fare prediction.
 
 - Target: `total_fare_bdt`
 - Leakage predictors excluded from modeling: `base_fare_bdt`, `tax_and_surcharge_bdt`
@@ -56,10 +56,7 @@ To fix this:
 | Lasso | 0.5700 | 42,812.36 | 58,474.33 |
 | Ridge | 0.5699 | 42,808.50 | 58,480.43 |
 
-Best model selection rationale:
 
-- Highest holdout R2 under leakage-free and time-aware evaluation
-- Stable performance relative to untuned baseline
 
 ## Cross-validation summary
 
@@ -103,8 +100,4 @@ Interpretation notes:
 - Component plots (base + tax vs total) are retained for business explanation only.
 - Modeling excludes these components to preserve correctness.
 
-## Practical implications
 
-- The updated pipeline provides realistic out-of-time performance estimates.
-- Streamlit now accepts only leakage-free inputs.
-- Reported metrics are suitable for comparing future model iterations consistently.
