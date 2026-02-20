@@ -2,18 +2,6 @@
 
 A production-style machine learning project for predicting flight fares in Bangladesh using a leakage-free, time-aware regression pipeline.
 
-## What changed
-
-This project now uses a corrected training setup focused on realistic generalization:
-
-- Target is strictly `total_fare_bdt`
-- Leakage predictors are excluded from modeling:
-  - `base_fare_bdt`
-  - `tax_and_surcharge_bdt`
-- Robust canonical preprocessing for both train and inference
-- Time-based split (first 80% train, last 20% test)
-- `TimeSeriesSplit` cross-validation on train data
-- Unified saved artifact (`preprocessor + model`) for inference consistency
 
 ## Project overview
 
@@ -33,13 +21,6 @@ Estimate flight fares from observable booking/flight attributes to support prici
 - Rows: 57,000
 - Original columns: 17
 
-## Leakage prevention policy
-
-`total_fare_bdt` is strongly determined by base fare and surcharge components. To prevent target leakage and inflated scores:
-
-- `base_fare_bdt` and `tax_and_surcharge_bdt` are never used as predictors
-- If target is missing, base+tax may be used only to fill target values in preprocessing
-- Leakage columns remain excluded from the final feature matrix
 
 ## Pipeline flow
 
