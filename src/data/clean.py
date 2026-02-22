@@ -1,183 +1,167 @@
 """
-Data cleaning logic.
+Cleans the raw DataFrame before feature engineering.
 
-Includes:
-- type conversions (dates)
-- normalization of categorical fields (stopovers)
-- basic sanity checks (non-negative duration/fare)
+Cleaning steps (in order):
+1. Enforce numeric types on fare and duration columns.
+2. Impute missing values (median for numerics, mode for categoricals).
+3. Remove logically invalid rows (negative fares, zero duration).
+4. Derive the target column if it is missing but components are present.
+
+Design decisions:
+- Each cleaning step is its own function so it can be tested independently.
+- ``clean`` is the public entry point that orchestrates all steps.
+- Cleaning is deterministic — no randomness, so results are reproducible.
 """
 
 import pandas as pd
 
+from src.config import LEAKAGE_COLS, TARGET_COL
 from src.utils import get_logger
 
 logger = get_logger(__name__)
 
-REQUIRED_COLUMNS = [
-    "airline",
-    "source",
-    "destination",
-    "departure_date_and_time",
-    "stopovers",
-    "aircraft_type",
-    "seasonality",
-    "days_before_departure",
-]
-
-NUMERIC_COLUMNS = [
-    "duration_hrs",
-    "base_fare_bdt",
-    "tax_and_surcharge_bdt",
-    "total_fare_bdt",
-    "days_before_departure",
-]
+# Columns that must be numeric for modelling.
+NUMERIC_COLS = ["duration_hrs", "days_before_departure", TARGET_COL] + list(
+    LEAKAGE_COLS
+)
 
 
-def enforce_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
+# Step helpers
+
+
+def _enforce_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Convert numeric columns safely.
+    Coerce fare and duration columns to float.
 
-    Invalid entries become NaN, which we then handle.
+    CSV imports often leave these as object when the source file contains
+    commas as thousands separators or stray text.
+    """
+    out = df.copy()
+    for col in NUMERIC_COLS:
+        if col not in out.columns:
+            continue
+        # Strip commas, currency symbols, whitespace before coercion.
+        cleaned = (
+            out[col]
+            .astype(str)
+            .str.replace(",", "", regex=False)
+            .str.replace(r"[^\d.\-]", "", regex=True)
+        )
+        coerced = pd.to_numeric(cleaned, errors="coerce")
+        new_nulls = coerced.isna().sum() - out[col].isna().sum()
+        if new_nulls > 0:
+            logger.warning(
+                "Column '%s': %d value(s) became NaN during numeric coercion.",
+                col,
+                new_nulls,
+            )
+        out[col] = coerced
+    return out
 
-    Why:
-    CSV imports can silently convert numeric columns to object.
+
+def _derive_target_if_missing(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    If ``total_fare_bdt`` is missing but both component columns are present,
+    derive it as base_fare + tax_and_surcharge.
+
+    This keeps rows we would otherwise have to drop.
+    """
+    out = df.copy()
+    if TARGET_COL not in out.columns:
+        return out
+
+    base, tax = LEAKAGE_COLS[0], LEAKAGE_COLS[1]
+    if base not in out.columns or tax not in out.columns:
+        return out
+
+    missing_mask = out[TARGET_COL].isna()
+    if missing_mask.any():
+        out.loc[missing_mask, TARGET_COL] = (
+            out.loc[missing_mask, base] + out.loc[missing_mask, tax]
+        )
+        logger.info(
+            "Derived %d missing target values from base_fare + tax.", missing_mask.sum()
+        )
+    return out
+
+
+def _impute_missing(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fill missing values using defensible strategies:
+    - Numeric >> median  (robust to outliers)
+    - Categorical >> mode
     """
     out = df.copy()
 
-    for col in NUMERIC_COLUMNS:
-        if col in out.columns:
-            before_invalid = out[col].isna().sum()
+    missing = out.isna().sum()
+    missing = missing[missing > 0]
+    if not missing.empty:
+        logger.info("Missing values before imputation:\n%s", missing.to_string())
 
-            out[col] = pd.to_numeric(out[col], errors="coerce")
+    for col in out.select_dtypes(include=["float64", "int64"]).columns:
+        if out[col].isna().any():
+            fill = out[col].median()
+            out[col] = out[col].fillna(fill)
 
-            after_invalid = out[col].isna().sum()
-
-            if after_invalid > before_invalid:
-                logger.warning(
-                    f"{col}: introduced {after_invalid - before_invalid} NaNs during numeric coercion"
-                )
+    for col in out.select_dtypes(include=["object"]).columns:
+        if out[col].isna().any():
+            fill = (
+                out[col].mode(dropna=True)[0]
+                if not out[col].mode(dropna=True).empty
+                else "Unknown"
+            )
+            out[col] = out[col].fillna(fill)
 
     return out
 
 
-def handle_missing_values(df: pd.DataFrame) -> pd.DataFrame:
+def _remove_invalid_rows(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Impute missing values using defensible strategies.
-
-    Numeric: median (robust to outliers)
-    Categorical: mode
-    """
-    out = df.copy()
-
-    missing_summary = out.isna().sum()
-    missing_summary = missing_summary[missing_summary > 0]
-
-    if not missing_summary.empty:
-        logger.info(f"Missing values detected:\n{missing_summary}")
-
-    # Numeric imputation
-    numeric_cols = out.select_dtypes(include=["float64", "int64"]).columns
-
-    for col in numeric_cols:
-        if out[col].isna().any():
-            median_val = out[col].median()
-            out[col] = out[col].fillna(median_val)
-            logger.info(f"Imputed numeric column {col} with median={median_val}")
-
-    # Categorical imputation
-    cat_cols = out.select_dtypes(include=["object"]).columns
-
-    for col in cat_cols:
-        if out[col].isna().any():
-            mode_val = out[col].mode()[0]
-            out[col] = out[col].fillna(mode_val)
-            logger.info(f"Imputed categorical column {col} with mode='{mode_val}'")
-
-    return out
-
-
-def remove_invalid_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Remove logically invalid rows.
-
-    Conditions removed:
-    - negative fares
-    - zero or negative duration
+    Drop rows that are logically impossible:
+    - Negative or zero total fare.
+    - Zero or negative flight duration.
+    - Negative base fare or tax.
     """
     out = df.copy()
-
     before = len(out)
 
-    conditions = (
-        (out["total_fare_bdt"] > 0)
-        & (out["duration_hrs"] > 0)
-        & (out["base_fare_bdt"] >= 0)
-        & (out["tax_and_surcharge_bdt"] >= 0)
-    )
+    mask = pd.Series(True, index=out.index)
 
-    out = out[conditions]
+    if TARGET_COL in out.columns:
+        mask &= out[TARGET_COL] > 0
 
+    if "duration_hrs" in out.columns:
+        mask &= out["duration_hrs"] > 0
+
+    for col in LEAKAGE_COLS:
+        if col in out.columns:
+            mask &= out[col] >= 0
+
+    out = out[mask]
     removed = before - len(out)
-
     if removed > 0:
-        logger.warning(f"Removed {removed} invalid rows")
+        logger.warning("Removed %d logically invalid rows.", removed)
+    return out.reset_index(drop=True)
 
-    return out
 
-
-def parse_datetimes(df: pd.DataFrame) -> pd.DataFrame:
+# Public entry point
+def clean(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Convert datetime columns safely.
+    Apply all cleaning steps in the correct order.
+
+    Args:
+        df: Raw DataFrame from :func:`src.data.load.load_raw`.
+
+    Returns:
+        Cleaned DataFrame — types are correct, no missing values,
+        no invalid rows.
     """
-    out = df.copy()
+    logger.info("Starting data cleaning — input shape: %s", df.shape)
 
-    out["departure_date_and_time"] = pd.to_datetime(
-        out["departure_date_and_time"], errors="coerce"
-    )
+    df = _enforce_numeric_types(df)
+    df = _derive_target_if_missing(df)
+    df = _impute_missing(df)
+    df = _remove_invalid_rows(df)
 
-    out["arrival_date_and_time"] = pd.to_datetime(
-        out["arrival_date_and_time"], errors="coerce"
-    )
-
-    return out
-
-
-def normalize_stopovers(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert stopovers text to numeric count.
-    """
-    out = df.copy()
-
-    mapping = {
-        "Direct": 0,
-        "1 Stop": 1,
-        "2 Stops": 2,
-    }
-
-    out["stopovers_count"] = out["stopovers"].map(mapping)
-
-    return out
-
-
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Master cleaning function.
-
-    Order matters:
-    1. Type enforcement
-    2. Missing handling
-    3. Invalid row removal
-    4. Datetime parsing
-    5. Feature normalization
-    """
-    logger.info(f"Starting cleaning: {len(df)} rows")
-
-    out = enforce_numeric_types(df)
-    out = handle_missing_values(out)
-    out = remove_invalid_rows(out)
-    out = parse_datetimes(out)
-    out = normalize_stopovers(out)
-
-    logger.info(f"Finished cleaning: {len(out)} rows")
-
-    return out
+    logger.info("Data cleaning complete — output shape: %s", df.shape)
+    return df

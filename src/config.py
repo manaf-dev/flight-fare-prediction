@@ -1,25 +1,46 @@
-"""Configuration file for the Flight Fare Prediction project."""
+"""
+Single source of truth for all project-wide settings: paths, column names, feature lists, and modelling parameters.
+"""
 
 from pathlib import Path
 
+# Root paths
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Paths
-DATA_PATH = PROJECT_ROOT / "data" / "Flight_Price_Dataset_of_Bangladesh.csv"
-LOGS_PATH = PROJECT_ROOT / "logs"
-MODELS_PATH = PROJECT_ROOT / "models"
-REPORTS_PATH = PROJECT_ROOT / "reports"
-VISUALIZATIONS_PATH = PROJECT_ROOT / "visualizations"
+DATA_DIR = PROJECT_ROOT / "data"
+LOGS_DIR = PROJECT_ROOT / "logs"
+MODELS_DIR = PROJECT_ROOT / "models"
+REPORTS_DIR = PROJECT_ROOT / "reports"
+VIZ_DIR = PROJECT_ROOT / "visualizations"
 
-# Core modeling constants
+# Input dataset
+RAW_DATA_PATH = DATA_DIR / "Flight_Price_Dataset_of_Bangladesh.csv"
+
+# Saved artifacts
+PIPELINE_PATH = MODELS_DIR / "best_model_pipeline.pkl"
+MODEL_METADATA_PATH = MODELS_DIR / "model_metadata.json"
+METRICS_PATH = REPORTS_DIR / "model_metrics.csv"
+CV_RESULTS_PATH = REPORTS_DIR / "cv_results.csv"
+INTERPRETATION_PATH = REPORTS_DIR / "model_interpretation.md"
+FEAT_IMPORTANCE_PLOT = VIZ_DIR / "feature_importance_top15.png"
+
+
+# Column names
+
 TARGET_COL = "total_fare_bdt"
-LEAKAGE_COLS = ["base_fare_bdt", "tax_and_surcharge_bdt"]
-DATE_COLS = ["departure_datetime", "arrival_datetime"]
-RANDOM_STATE = 42
-TEST_SIZE = 0.2
-CV_FOLDS = 5
 
-# Canonical feature groups (leakage removed)
+# These columns directly determine the target (base + tax = total), so they
+# must NEVER be used as model inputs — that would be target leakage.
+LEAKAGE_COLS = ["base_fare_bdt", "tax_and_surcharge_bdt"]
+
+# Datetime columns that need parsing
+DATETIME_COLS = ["departure_datetime", "arrival_datetime"]
+
+
+# Feature lists
+
 CATEGORICAL_FEATURES = [
     "airline",
     "source",
@@ -44,57 +65,12 @@ NUMERICAL_FEATURES = [
     "route_frequency",
 ]
 
-# Artifacts
-PIPELINE_PATH = MODELS_PATH / "best_model_pipeline.pkl"
-METRICS_PATH = REPORTS_PATH / "model_metrics.csv"
-CV_RESULTS_PATH = REPORTS_PATH / "cv_results.csv"
-MODEL_METADATA_PATH = MODELS_PATH / "model_metadata.json"
-TOP_FEATURES_PLOT_PATH = VISUALIZATIONS_PATH / "feature_importance_top15.png"
+ALL_FEATURES = CATEGORICAL_FEATURES + NUMERICAL_FEATURES
 
 
-"""
-Project configuration.
-
-Central place for:
-- file paths
-- column names
-- train/test settings
-- reproducibility
-"""
-
-from dataclasses import dataclass
-from pathlib import Path
+# Modelling parameters
 
 
-@dataclass(frozen=True)
-class Config:
-    """Immutable configuration for the project."""
-
-    # Paths
-    project_root: Path = Path(__file__).resolve().parents[1]
-    data_path: Path = project_root / "data" / "Flight_Price_Dataset_of_Bangladesh.csv"
-    outputs_dir: Path = project_root / "outputs"
-    models_dir: Path = outputs_dir / "models"
-    metrics_dir: Path = outputs_dir / "metrics"
-    figures_dir: Path = outputs_dir / "figures"
-    logs_dir: Path = project_root / "logs"
-
-    # Reproducibility
-    random_state: int = 42
-    test_size: float = 0.2
-
-    # Columns
-    target_col: str = "total_fare_bdt"
-
-    # These cause target leakage for predicting Total Fare.
-    leakage_cols: tuple[str, ...] = ("base_fare_bdt", "tax_and_surcharge_bdt")
-
-    # redundant / high-cardinality text
-    drop_cols: tuple[str, ...] = (
-        "source_name",
-        "destination_name",
-        "arrival_date_and_time",
-    )
-
-
-CONFIG = Config()
+RANDOM_STATE = 42
+TEST_SIZE = 0.20  # chronological holdout fraction
+CV_FOLDS = 5  # folds for TimeSeriesSplit

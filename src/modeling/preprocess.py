@@ -1,50 +1,57 @@
 """
-Preprocessing for modeling.
+Builds the sklearn ``ColumnTransformer`` that handles numeric scaling and
+categorical one-hot encoding inside the model pipeline.
 
-Implements:
-- One-hot encoding for categorical features
-- Scaling for numeric features (StandardScaler)
+Kept separate from ``train.py`` so the same preprocessor can be reused in
+cross-validation, tuning, and the saved inference artifact.
 """
 
-import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from src.config import CATEGORICAL_FEATURES, NUMERICAL_FEATURES
 
-def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+
+def build_preprocessor(feature_cols: list[str]) -> ColumnTransformer:
     """
-    Build preprocessing transformer:
-    - Numeric: median impute + standard scale
-    - Categorical: mode impute + one-hot encode
+    Build a ``ColumnTransformer`` that:
+    - Numeric columns: median-impute → StandardScaler
+    - Categorical columns: mode-impute → OneHotEncoder (ignores unseen values)
+
+    Only columns that are both in ``feature_cols`` AND in the project feature
+    lists are included — this prevents silent failures when a column is absent.
 
     Args:
-        X: Feature dataframe.
+        feature_cols: List of columns available in the training DataFrame.
 
     Returns:
-        ColumnTransformer ready for a sklearn Pipeline.
+        Unfitted ``ColumnTransformer`` ready to be placed in a ``Pipeline``.
     """
-    cat_cols = X.select_dtypes(include=["object"]).columns.tolist()
-    num_cols = [c for c in X.columns if c not in cat_cols]
+    numerical = [f for f in NUMERICAL_FEATURES if f in feature_cols]
+    categorical = [f for f in CATEGORICAL_FEATURES if f in feature_cols]
 
     numeric_pipe = Pipeline(
-        steps=[
+        [
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler()),
         ]
     )
 
     categorical_pipe = Pipeline(
-        steps=[
+        [
             ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("onehot", OneHotEncoder(handle_unknown="ignore")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
         ]
     )
 
-    return ColumnTransformer(
+    preprocessor = ColumnTransformer(
         transformers=[
-            ("num", numeric_pipe, num_cols),
-            ("cat", categorical_pipe, cat_cols),
-        ]
+            ("num", numeric_pipe, numerical),
+            ("cat", categorical_pipe, categorical),
+        ],
+        remainder="drop",  # silently drop any unrecognised columns
     )
+
+    return preprocessor

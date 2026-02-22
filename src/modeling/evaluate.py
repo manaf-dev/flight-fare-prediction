@@ -10,7 +10,7 @@ We report multiple regression metrics:
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 
 
-def regression_metrics(y_true, y_pred):
+def compute_metrics(y_true, y_pred):
     """
     Compute regression metrics.
 
