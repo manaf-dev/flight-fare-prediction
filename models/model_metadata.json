@@ -1,5 +1,5 @@
 {
-  "training_timestamp": "2026-02-22T18:05:54.165987+00:00",
+  "training_timestamp": "2026-02-22T21:16:42.645669+00:00",
   "best_model": "HistGradientBoosting_tuned",
   "target_column": "total_fare_bdt",
   "leakage_cols_excluded": [
@@ -16,6 +16,7 @@
     "booking_source",
     "seasonality",
     "route",
+    "season",
     "duration_hrs",
     "days_before_departure",
     "departure_month",
@@ -35,7 +36,8 @@
     "class",
     "booking_source",
     "seasonality",
-    "route"
+    "route",
+    "season"
   ],
   "numerical_features": [
     "duration_hrs",

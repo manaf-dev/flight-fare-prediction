@@ -1,11 +1,9 @@
 """
-Single source of truth for all project-wide settings: paths, column names, feature lists, and modelling parameters.
+Single source of truth for all project-wide settings: paths, column names,
+feature lists, and modelling parameters.
 """
 
 from pathlib import Path
-
-# Root paths
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +25,6 @@ INTERPRETATION_PATH = REPORTS_DIR / "model_interpretation.md"
 FEAT_IMPORTANCE_PLOT = VIZ_DIR / "feature_importance_top15.png"
 
 
-# Column names
-
 TARGET_COL = "total_fare_bdt"
 
 # These columns directly determine the target (base + tax = total), so they
@@ -37,9 +33,6 @@ LEAKAGE_COLS = ["base_fare_bdt", "tax_and_surcharge_bdt"]
 
 # Datetime columns that need parsing
 DATETIME_COLS = ["departure_datetime", "arrival_datetime"]
-
-
-# Feature lists
 
 CATEGORICAL_FEATURES = [
     "airline",
@@ -51,6 +44,7 @@ CATEGORICAL_FEATURES = [
     "booking_source",
     "seasonality",
     "route",
+    "season",  # calendar season derived from departure month (winter/spring/summer/autumn)
 ]
 
 NUMERICAL_FEATURES = [
@@ -66,9 +60,6 @@ NUMERICAL_FEATURES = [
 ]
 
 ALL_FEATURES = CATEGORICAL_FEATURES + NUMERICAL_FEATURES
-
-
-# Modelling parameters
 
 
 RANDOM_STATE = 42

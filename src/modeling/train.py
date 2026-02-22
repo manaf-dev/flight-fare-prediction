@@ -35,6 +35,7 @@ from src.config import (
     REPORTS_DIR,
     TARGET_COL,
     TEST_SIZE,
+    VIZ_DIR,
 )
 from src.modeling.evaluate import compute_metrics
 from src.modeling.preprocess import build_preprocessor
@@ -43,33 +44,22 @@ from src.utils import get_logger
 logger = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Candidate model definitions
-# ---------------------------------------------------------------------------
-
-
 def _get_baseline() -> dict:
     """
-    Return the Step 4 baseline model: plain Linear Regression.
-
-    LinearRegression has no hyperparameters to tune and serves as the
-    lower-bound reference. Every other model should outperform it;
-    if it doesn't, that's a signal to investigate data or features.
+    Step 4 baseline: plain LinearRegression.
+    No regularisation, no hyperparameters — serves as the floor all other
+    models must beat.
     """
     return {"LinearRegression": LinearRegression()}
 
 
 def _get_advanced_candidates() -> dict:
-    """
-    Return Step 5 advanced models in order of increasing complexity.
-
-    Order matters for logging clarity — simpler models first.
-    """
+    """Step 5 advanced models, ordered from simplest to most complex."""
     return {
         "Ridge": Ridge(),
         "Lasso": Lasso(random_state=RANDOM_STATE, max_iter=20_000),
         "DecisionTree": DecisionTreeRegressor(
-            max_depth=10,  # constrained to avoid extreme overfitting
+            max_depth=10,  # constrained to prevent extreme overfitting
             random_state=RANDOM_STATE,
         ),
         "RandomForest": RandomForestRegressor(
@@ -86,18 +76,18 @@ def _get_advanced_candidates() -> dict:
 
 
 def _get_all_candidates() -> dict:
-    """Return baseline + advanced candidates combined (baseline first)."""
+    """Baseline first, then advanced — order preserved in Python 3.7+ dicts."""
     return {**_get_baseline(), **_get_advanced_candidates()}
 
 
 def _tuning_space(model_name: str) -> dict:
-    """
-    Return the hyperparameter search space for RandomizedSearchCV.
-
-    Only tree models are tuned because linear models have negligible gain
-    from extensive tuning compared to the cost.
-    """
+    """Hyperparameter search spaces for RandomizedSearchCV (tree models only)."""
     spaces = {
+        "DecisionTree": {
+            "model__max_depth": [5, 8, 10, 15, None],
+            "model__min_samples_split": randint(2, 20),
+            "model__min_samples_leaf": randint(1, 10),
+        },
         "RandomForest": {
             "model__n_estimators": randint(180, 450),
             "model__max_depth": [None, 10, 14, 18, 24],
@@ -113,35 +103,25 @@ def _tuning_space(model_name: str) -> dict:
         },
     }
     if model_name not in spaces:
-        raise ValueError(f"No tuning space defined for model '{model_name}'.")
+        raise ValueError(f"No tuning space defined for '{model_name}'.")
     return spaces[model_name]
-
-
-# ---------------------------------------------------------------------------
-# Chronological split
-# ---------------------------------------------------------------------------
 
 
 def _chronological_split(df: pd.DataFrame, test_size: float):
     """
-    Sort by departure_datetime and split the last ``test_size`` fraction as test.
-
-    Raises:
-        AssertionError: If any training timestamp is after the first test timestamp.
+    Sort by departure_datetime; reserve the last test_size fraction as test.
+    Asserts temporal ordering is respected.
     """
     sorted_df = df.sort_values("departure_datetime").reset_index(drop=True)
-    cut = int(len(sorted_df) * (1 - test_size))
-    cut = max(1, min(cut, len(sorted_df) - 1))
-
-    train = sorted_df.iloc[:cut].copy()
-    test = sorted_df.iloc[cut:].copy()
+    cut = max(1, min(int(len(sorted_df) * (1 - test_size)), len(sorted_df) - 1))
+    train, test = sorted_df.iloc[:cut].copy(), sorted_df.iloc[cut:].copy()
 
     assert train["departure_datetime"].max() <= test["departure_datetime"].min(), (
-        "Chronological split violated: training data contains timestamps after test start."
+        "Chronological split violated: training data has timestamps after test start."
     )
     logger.info(
-        "Chronological split — train: %d rows, test: %d rows. "
-        "Train ends: %s | Test starts: %s",
+        "Chronological split — train: %d rows | test: %d rows | "
+        "train ends: %s | test starts: %s",
         len(train),
         len(test),
         train["departure_datetime"].max().date(),
@@ -150,84 +130,194 @@ def _chronological_split(df: pd.DataFrame, test_size: float):
     return train, test
 
 
-# ---------------------------------------------------------------------------
-# Feature importance plot
-# ---------------------------------------------------------------------------
+def _plot_actual_vs_predicted(y_test, y_pred, model_name: str) -> None:
+    """
+    Scatter plot of actual vs predicted fares for the best model.
+    Step 4: 'Visualize actual vs. predicted values.'
+    Perfect predictions lie on the diagonal line.
+    """
+    VIZ_DIR.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    sample_size = min(2000, len(y_test))
+    idx = np.random.default_rng(42).choice(len(y_test), size=sample_size, replace=False)
+    y_actual = np.array(y_test)[idx]
+    y_hat = np.array(y_pred)[idx]
+
+    ax.scatter(y_actual, y_hat, alpha=0.3, s=12, color="steelblue", label="Predictions")
+
+    # Perfect-prediction diagonal
+    lo, hi = min(y_actual.min(), y_hat.min()), max(y_actual.max(), y_hat.max())
+    ax.plot([lo, hi], [lo, hi], "r--", linewidth=1.5, label="Perfect prediction")
+
+    ax.set_xlabel("Actual Total Fare (BDT)")
+    ax.set_ylabel("Predicted Total Fare (BDT)")
+    ax.set_title(f"Actual vs Predicted Fare — {model_name}", fontsize=13)
+    ax.legend()
+    plt.tight_layout()
+
+    path = VIZ_DIR / "actual_vs_predicted.png"
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    logger.info("Saved actual vs predicted plot: %s", path)
+
+
+def _plot_residuals(y_test, y_pred, model_name: str) -> None:
+    """
+    Residual plot: predicted values on x-axis, residuals (actual - predicted) on y-axis.
+    Step 4: 'Analyze residuals to detect underfitting or overfitting.'
+
+    What to look for:
+    - Random scatter around y=0 → well-fitted model
+    - Funnel shape (heteroscedasticity) → variance increases with fare level
+    - Curve pattern → model is missing non-linear structure
+    """
+    VIZ_DIR.mkdir(parents=True, exist_ok=True)
+
+    residuals = np.array(y_test) - np.array(y_pred)
+    sample_size = min(2000, len(residuals))
+    idx = np.random.default_rng(42).choice(
+        len(residuals), size=sample_size, replace=False
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Left: Residuals vs Predicted
+    axes[0].scatter(
+        np.array(y_pred)[idx], residuals[idx], alpha=0.3, s=12, color="steelblue"
+    )
+    axes[0].axhline(0, color="red", linewidth=1.5, linestyle="--")
+    axes[0].set_xlabel("Predicted Total Fare (BDT)")
+    axes[0].set_ylabel("Residual (Actual − Predicted)")
+    axes[0].set_title("Residuals vs Predicted")
+
+    # Right: Residual distribution
+    axes[1].hist(residuals, bins=60, edgecolor="white", alpha=0.85, color="steelblue")
+    axes[1].axvline(0, color="red", linewidth=1.5, linestyle="--")
+    axes[1].set_xlabel("Residual (BDT)")
+    axes[1].set_ylabel("Frequency")
+    axes[1].set_title("Residual Distribution")
+
+    fig.suptitle(f"Residual Analysis — {model_name}", fontsize=14)
+    plt.tight_layout()
+
+    path = VIZ_DIR / "residual_analysis.png"
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    logger.info("Saved residual analysis plot: %s", path)
+
+
+def _plot_bias_variance(cv_rows: list) -> None:
+    """
+    Bar chart showing CV R² mean ± std for each model.
+    Step 5: 'Plot bias-variance tradeoff.'
+
+    Interpretation:
+    - High mean + low std → good generaliser (low bias, low variance)
+    - Low mean → high bias (underfitting)
+    - High std → high variance (overfitting / unstable)
+    """
+    VIZ_DIR.mkdir(parents=True, exist_ok=True)
+
+    rows = [r for r in cv_rows if not r.get("tuned", False)]
+    names = [r["model"] for r in rows]
+    means = [r["cv_r2_mean"] for r in rows]
+    stds = [r["cv_r2_std"] for r in rows]
+
+    x = np.arange(len(names))
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(
+        x,
+        means,
+        yerr=stds,
+        capsize=6,
+        color="steelblue",
+        error_kw={"elinewidth": 2, "ecolor": "tomato"},
+        alpha=0.85,
+    )
+
+    # Colour the baseline differently
+    if "LinearRegression" in names:
+        bars[names.index("LinearRegression")].set_color("grey")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=20, ha="right")
+    ax.set_ylabel("Cross-Validated R²")
+    ax.set_title(
+        "Bias-Variance Tradeoff — CV R² Mean ± Std\n"
+        "(Grey bar = LinearRegression baseline | Error bars show variance across CV folds)",
+        fontsize=12,
+    )
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+    plt.tight_layout()
+
+    path = VIZ_DIR / "bias_variance_tradeoff.png"
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    logger.info("Saved bias-variance tradeoff plot: %s", path)
+
+
+# Feature importance / linear coefficient interpretation
 
 
 def _plot_feature_importance(pipeline: Pipeline, top_n: int = 15) -> list:
     """
-    Extract, plot, and save the top-N feature importances from a fitted pipeline.
+    Extract, plot, and save the top-N feature importances from the fitted pipeline.
 
-    Strategy:
-    - Tree models (RandomForest, DecisionTree, HistGradientBoosting):
-        use native ``feature_importances_`` — reliable and fast.
-    - Linear models (LinearRegression, Ridge, Lasso):
-        use absolute coefficient values — magnitude = influence.
+    Tree models  → native feature_importances_ (mean decrease in impurity)
+    Linear models → absolute coefficient magnitude (|coef|)
 
-    The preprocessor is called with ``transform=False`` via
-    ``get_feature_names_out()`` which works on an already-fitted
-    ColumnTransformer without needing new data.
-
-    Returns:
-        List of dicts: [{"feature": name, "importance": value}, ...]
-        Empty list if importances cannot be extracted.
+    Returns list of {"feature": name, "importance": value} dicts for metadata.
     """
+    VIZ_DIR.mkdir(parents=True, exist_ok=True)
     model = pipeline.named_steps["model"]
     preprocessor = pipeline.named_steps["preprocessor"]
 
-    # --- Extract feature names from the fitted preprocessor ---
     try:
         raw_names = list(preprocessor.get_feature_names_out())
     except Exception as exc:
         logger.warning("Could not get feature names from preprocessor: %s", exc)
         return []
 
-    # Clean up sklearn's prefix format: "num__duration_hrs" → "duration_hrs"
+    # Strip sklearn prefix: "num__duration_hrs" → "duration_hrs"
     names = [n.replace("num__", "").replace("cat__", "") for n in raw_names]
 
-    # --- Extract importance values ---
     if hasattr(model, "feature_importances_"):
-        # Tree-based models
         values = model.feature_importances_.tolist()
+        importance_label = "Feature Importance (mean decrease in impurity)"
     elif hasattr(model, "coef_"):
-        # Linear models — use absolute coefficient magnitude
-        coef = model.coef_
-        values = np.abs(coef).tolist()
+        values = np.abs(model.coef_).tolist()
+        importance_label = "Absolute Coefficient Magnitude"
     else:
         logger.warning(
-            "Model '%s' has neither feature_importances_ nor coef_.",
+            "Model '%s' exposes neither feature_importances_ nor coef_.",
             type(model).__name__,
         )
         return []
 
     if len(names) != len(values):
         logger.warning(
-            "Feature name/importance length mismatch: %d names vs %d values. Skipping plot.",
+            "Name/value length mismatch: %d names, %d values. Skipping plot.",
             len(names),
             len(values),
         )
         return []
 
-    # --- Sort by importance descending, take top_n ---
     actual_top = min(top_n, len(values))
     order = np.argsort(values)[::-1][:actual_top]
     top_names = [names[i] for i in order]
     top_values = [values[i] for i in order]
 
-    # --- Plot ---
     fig, ax = plt.subplots(figsize=(10, max(5, actual_top * 0.5)))
-    y_pos = range(actual_top)
-    ax.barh(list(y_pos), top_values[::-1], color="steelblue")
-    ax.set_yticks(list(y_pos))
+    ax.barh(range(actual_top), top_values[::-1], color="steelblue")
+    ax.set_yticks(range(actual_top))
     ax.set_yticklabels(top_names[::-1])
+    ax.set_xlabel(importance_label)
     ax.set_title(
         f"Top {actual_top} Feature Importances — {type(model).__name__}", fontsize=13
     )
-    ax.set_xlabel("Importance")
     plt.tight_layout()
 
-    FEAT_IMPORTANCE_PLOT.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(FEAT_IMPORTANCE_PLOT, bbox_inches="tight", dpi=150)
     plt.close(fig)
     logger.info("Saved feature importance plot: %s", FEAT_IMPORTANCE_PLOT)
@@ -242,43 +332,69 @@ def _plot_feature_importance(pipeline: Pipeline, top_n: int = 15) -> list:
     return result
 
 
-# ---------------------------------------------------------------------------
+def _save_linear_coefficients(fitted_pipes: dict, feature_cols: list) -> None:
+    """
+    Step 6: 'For linear models: Examine coefficients.'
+
+    Save a CSV of LinearRegression, Ridge, and Lasso coefficients so they
+    can be inspected and discussed. Coefficients are sorted by absolute magnitude.
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    linear_models = ["LinearRegression", "Ridge", "Lasso"]
+
+    for name in linear_models:
+        if name not in fitted_pipes:
+            continue
+        pipe = fitted_pipes[name]
+        model = pipe.named_steps["model"]
+        preprocessor = pipe.named_steps["preprocessor"]
+
+        if not hasattr(model, "coef_"):
+            continue
+
+        try:
+            raw_names = list(preprocessor.get_feature_names_out())
+            feat_names = [
+                n.replace("num__", "").replace("cat__", "") for n in raw_names
+            ]
+            coefs = model.coef_.tolist()
+
+            if len(feat_names) != len(coefs):
+                continue
+
+            coef_df = (
+                pd.DataFrame({"feature": feat_names, "coefficient": coefs})
+                .assign(abs_coef=lambda x: x["coefficient"].abs())
+                .sort_values("abs_coef", ascending=False)
+                .drop(columns="abs_coef")
+            )
+            path = REPORTS_DIR / f"linear_coefficients_{name.lower()}.csv"
+            coef_df.to_csv(path, index=False)
+            logger.info("Saved %s coefficients → %s", name, path)
+        except Exception as exc:
+            logger.warning("Could not extract coefficients for %s: %s", name, exc)
+
+
 # Main training function
-# ---------------------------------------------------------------------------
-
-
 def train_and_select(
     df: pd.DataFrame, test_size: float = TEST_SIZE, tuning: bool = True
 ) -> dict:
     """
     Run the full training pipeline and persist all artifacts.
 
-    Steps:
-    1. Chronological train/test split.
-    2. Train LinearRegression as the Step 4 baseline and log its metrics.
-    3. Train all Step 5 advanced models with TimeSeriesSplit CV.
-    4. Tune the best tree model with RandomizedSearchCV.
-    5. Evaluate all models on the held-out test set.
-    6. Select the best model by holdout R².
-    7. Save: model pkl, metrics CSV, CV results CSV, metadata JSON, feature plot.
-
     Args:
-        df: Feature-engineered DataFrame.
-        test_size: Fraction of data reserved for the final holdout test.
-        tuning: Whether to run RandomizedSearchCV. Set False for quick runs.
+        df: Feature-engineered DataFrame from src.features.build.build().
+        test_size: Fraction of data for chronological holdout test.
+        tuning: Run RandomizedSearchCV on best tree. False = faster dev run.
 
     Returns:
-        Dict with keys: best_model_name, best_pipeline, metrics_df, cv_df, metadata.
+        Dict with: best_model_name, best_pipeline, metrics_df, cv_df, metadata.
     """
-    # --- Validate inputs ---
     if TARGET_COL not in df.columns:
-        raise ValueError(f"Target column '{TARGET_COL}' is missing from the DataFrame.")
+        raise ValueError(f"Target column '{TARGET_COL}' missing from DataFrame.")
     if "departure_datetime" not in df.columns:
-        raise ValueError(
-            "'departure_datetime' column is required for chronological splitting."
-        )
+        raise ValueError("'departure_datetime' required for chronological split.")
 
-    # Guard against leakage — fail loudly before any training happens.
     feature_cols = [c for c in ALL_FEATURES if c in df.columns]
     leaked = [c for c in LEAKAGE_COLS if c in feature_cols]
     if leaked:
@@ -293,18 +409,14 @@ def train_and_select(
 
     preprocessor = build_preprocessor(feature_cols)
     tscv = TimeSeriesSplit(n_splits=CV_FOLDS)
-
-    cv_rows = []
-    metric_rows = []
-    fitted_pipes = {}
-
     all_candidates = _get_all_candidates()
 
-    # --- Train and evaluate all models ---
+    cv_rows, metric_rows, fitted_pipes = [], [], {}
+
+    # --- Train + evaluate all models ---
     for name, estimator in all_candidates.items():
         is_baseline = name == "LinearRegression"
-        label = "BASELINE" if is_baseline else "model"
-        logger.info("Evaluating %s: %s", label, name)
+        logger.info("Evaluating %s: %s", "BASELINE" if is_baseline else "model", name)
 
         pipe = Pipeline([("preprocessor", preprocessor), ("model", estimator)])
 
@@ -321,7 +433,6 @@ def train_and_select(
             n_jobs=-1,
             error_score="raise",
         )
-
         cv_rows.append(
             {
                 "model": name,
@@ -340,7 +451,7 @@ def train_and_select(
         metric_rows.append({"model": name, **m, "is_tuned": False})
 
         logger.info(
-            "%-25s CV R²=%.4f ± %.4f | Holdout R²=%.4f | MAE=%9.0f | RMSE=%9.0f%s",
+            "%-25s CV R²=%6.4f ±%5.4f | Holdout R²=%6.4f | MAE=%9.0f | RMSE=%9.0f%s",
             name,
             cv_rows[-1]["cv_r2_mean"],
             cv_rows[-1]["cv_r2_std"],
@@ -350,7 +461,7 @@ def train_and_select(
             "  ← baseline" if is_baseline else "",
         )
 
-    # --- Pick the best tree model (by CV R²) for tuning ---
+    # --- Tune best tree model ---
     tree_names = ["DecisionTree", "RandomForest", "HistGradientBoosting"]
     best_tree = max(
         (r for r in cv_rows if r["model"] in tree_names),
@@ -361,15 +472,13 @@ def train_and_select(
 
     if tuning:
         logger.info("Tuning '%s' with RandomizedSearchCV ...", best_tree)
-        pipe_to_tune = Pipeline(
-            [
-                ("preprocessor", preprocessor),
-                ("model", _get_advanced_candidates()[best_tree]),
-            ]
-        )
-
         search = RandomizedSearchCV(
-            estimator=pipe_to_tune,
+            estimator=Pipeline(
+                [
+                    ("preprocessor", preprocessor),
+                    ("model", _get_advanced_candidates()[best_tree]),
+                ]
+            ),
             param_distributions=_tuning_space(best_tree),
             n_iter=12,
             scoring="r2",
@@ -380,7 +489,6 @@ def train_and_select(
             error_score="raise",
         )
         search.fit(X_train, y_train)
-
         tuned_pipe = search.best_estimator_
         tuned_name = f"{best_tree}_tuned"
 
@@ -396,9 +504,8 @@ def train_and_select(
             }
         )
         metric_rows.append({"model": tuned_name, **m_tuned, "is_tuned": True})
-
         logger.info(
-            "%-25s best CV R²=%.4f | Holdout R²=%.4f | MAE=%9.0f | RMSE=%9.0f",
+            "%-25s best CV R²=%6.4f | Holdout R²=%6.4f | MAE=%9.0f | RMSE=%9.0f",
             tuned_name,
             search.best_score_,
             m_tuned["r2"],
@@ -407,7 +514,7 @@ def train_and_select(
         )
         logger.info("Best hyperparameters: %s", search.best_params_)
 
-    # --- Select the best overall model by holdout R² ---
+    # --- Select winner ---
     metrics_df = (
         pd.DataFrame(metric_rows)
         .sort_values("r2", ascending=False)
@@ -423,20 +530,26 @@ def train_and_select(
     if tuned_name and best_name == tuned_name:
         best_pipeline = tuned_pipe
     else:
-        base = best_name.replace("_tuned", "")
-        best_pipeline = fitted_pipes[base]
+        best_pipeline = fitted_pipes[best_name.replace("_tuned", "")]
 
-    # --- Feature importance plot (no X_test needed — uses fitted pipeline only) ---
+    # --- Diagnostic plots ---
+    best_preds = best_pipeline.predict(X_test)
+    _plot_actual_vs_predicted(y_test, best_preds, best_name)
+    _plot_residuals(y_test, best_preds, best_name)
+    _plot_bias_variance(cv_rows)
+
+    # --- Feature importance + linear coefficients ---
     top_features = _plot_feature_importance(best_pipeline, top_n=15)
+    _save_linear_coefficients(fitted_pipes, feature_cols)
 
-    # --- Build route frequency map for inference ---
+    # --- Route frequency map for inference ---
     route_freq_map = (
         df["route"].value_counts(dropna=False).to_dict()
         if "route" in df.columns
         else {}
     )
 
-    # --- Persist all artifacts ---
+    # --- Persist artifacts ---
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -461,15 +574,16 @@ def train_and_select(
     with open(MODEL_METADATA_PATH, "w", encoding="utf-8") as fh:
         json.dump(metadata, fh, indent=2)
 
+    baseline_r2 = next(r["r2"] for r in metric_rows if r["model"] == "LinearRegression")
     logger.info("=" * 55)
+    logger.info("Baseline LinearRegression  R² = %.4f", baseline_r2)
     logger.info(
-        "Best model: '%s' | Holdout R²=%.4f", best_name, metrics_df.iloc[0]["r2"]
+        "Best model: %-20s R² = %.4f  (+%.4f vs baseline)",
+        best_name,
+        metrics_df.iloc[0]["r2"],
+        metrics_df.iloc[0]["r2"] - baseline_r2,
     )
-    logger.info(
-        "Baseline LinearRegression R²=%.4f (for comparison)",
-        next(r["r2"] for r in metric_rows if r["model"] == "LinearRegression"),
-    )
-    logger.info("Artifacts saved → model: %s", PIPELINE_PATH)
+    logger.info("Artifacts saved → %s", PIPELINE_PATH)
     logger.info("=" * 55)
 
     return {
