@@ -50,3 +50,51 @@ METRICS_PATH = REPORTS_PATH / "model_metrics.csv"
 CV_RESULTS_PATH = REPORTS_PATH / "cv_results.csv"
 MODEL_METADATA_PATH = MODELS_PATH / "model_metadata.json"
 TOP_FEATURES_PLOT_PATH = VISUALIZATIONS_PATH / "feature_importance_top15.png"
+
+
+"""
+Project configuration.
+
+Central place for:
+- file paths
+- column names
+- train/test settings
+- reproducibility
+"""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class Config:
+    """Immutable configuration for the project."""
+
+    # Paths
+    project_root: Path = Path(__file__).resolve().parents[1]
+    data_path: Path = project_root / "data" / "Flight_Price_Dataset_of_Bangladesh.csv"
+    outputs_dir: Path = project_root / "outputs"
+    models_dir: Path = outputs_dir / "models"
+    metrics_dir: Path = outputs_dir / "metrics"
+    figures_dir: Path = outputs_dir / "figures"
+    logs_dir: Path = project_root / "logs"
+
+    # Reproducibility
+    random_state: int = 42
+    test_size: float = 0.2
+
+    # Columns
+    target_col: str = "total_fare_bdt"
+
+    # These cause target leakage for predicting Total Fare.
+    leakage_cols: tuple[str, ...] = ("base_fare_bdt", "tax_and_surcharge_bdt")
+
+    # redundant / high-cardinality text
+    drop_cols: tuple[str, ...] = (
+        "source_name",
+        "destination_name",
+        "arrival_date_and_time",
+    )
+
+
+CONFIG = Config()
