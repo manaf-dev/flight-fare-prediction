@@ -3,13 +3,13 @@
 import logging
 from pathlib import Path
 
-from src.config import CONFIG
+from src.config import LOGS_DIR
 
 
 def get_logger(name):
     """Create or retrieve a configured logger."""
-    CONFIG.logs_dir.mkdir(parents=True, exist_ok=True)
-    log_file = Path(CONFIG.logs_dir) / "pipeline.log"
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_file = Path(LOGS_DIR) / "pipeline.log"
 
     logger = logging.getLogger(name)
     if logger.handlers:
