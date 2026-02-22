@@ -1,103 +1,124 @@
-# Model Interpretation & Insights
+# Model Interpretation and Insights
 
-## Executive Summary
+## Run Context
 
-A time-aware modeling workflow was implemented for flight fare prediction.
+- Problem: Predict `total_fare_bdt` from booking, route, airline, and time features
+- Best model selected: `HistGradientBoosting_tuned`
+- Evaluation setup:
+  - Chronological holdout split (80% train / 20% test)
+  - Time-series cross-validation (5 folds)
+  - Metrics: R2, MAE, RMSE
 
-- Target: `total_fare_bdt`
-- Leakage predictors excluded from modeling: `base_fare_bdt`, `tax_and_surcharge_bdt`
-- Chronological holdout: first 80% train, last 20% test
-- Cross-validation: `TimeSeriesSplit(n_splits=5)` on training window
-- Best model: `HistGradientBoosting_tuned`
+## 1. Model Performance Summary
 
-## Why leakage mattered
+### Holdout test set results
 
-In this dataset, `total_fare_bdt` is largely composed of base fare plus surcharge components. Using those components as predictors creates target leakage and can make metrics look unrealistically perfect.
-
-To fix this:
-
-- Base and surcharge were removed from predictors.
-- They are only allowed for optional target filling when target is missing.
-- Final feature matrix is asserted to exclude leakage columns and target column.
-
-## Modeling setup
-
-### Candidate models
-
-- Ridge
-- Lasso
-- RandomForestRegressor
-- HistGradientBoostingRegressor
-
-### Preprocessing and features
-
-- Column normalization and canonical mapping
-- Missing value handling:
-  - Categorical -> `Unknown`
-  - Numerical -> median
-- Engineered features:
-  - `departure_month`, `departure_day`, `departure_hour`, `departure_weekday`
-  - `is_weekend`, `is_peak_hour`
-  - `route`, `route_frequency`
-
-### Validation strategy
-
-- Holdout split is chronological by `departure_datetime`
-- CV uses `TimeSeriesSplit` to avoid future leakage across folds
-- Metrics: `R2`, `MAE`, `RMSE`
-
-## Final model comparison (holdout)
-
-| Model | R2 | MAE | RMSE |
+| Model | R2 | MAE (BDT) | RMSE (BDT) |
 |---|---:|---:|---:|
-| HistGradientBoosting_tuned | 0.6780 | 30,618.47 | 50,605.68 |
-| HistGradientBoosting | 0.6756 | 30,707.98 | 50,787.26 |
-| RandomForest | 0.6519 | 32,200.92 | 52,612.18 |
-| Lasso | 0.5700 | 42,812.36 | 58,474.33 |
-| Ridge | 0.5699 | 42,808.50 | 58,480.43 |
+| HistGradientBoosting_tuned | 0.6759 | 30,674 | 50,766 |
+| HistGradientBoosting | 0.6756 | 30,617 | 50,793 |
+| RandomForest | 0.6521 | 32,260 | 52,599 |
+| LinearRegression (baseline) | 0.5695 | 42,940 | 58,510 |
+| Lasso | 0.5695 | 42,959 | 58,510 |
+| Ridge | 0.5695 | 42,941 | 58,511 |
+| DecisionTree | 0.5189 | 35,270 | 61,853 |
 
+### What this means
 
+- `HistGradientBoosting_tuned` is the best overall model by R2 and RMSE.
+- Compared with baseline Linear Regression:
+  - R2 improved by **+0.1064** (0.5695 -> 0.6759)
+  - MAE improved by about **12,266 BDT** (42,940 -> 30,674)
+  - RMSE improved by about **7,744 BDT** (58,510 -> 50,766)
 
-## Cross-validation summary
+This is a meaningful accuracy gain, not just a marginal improvement.
 
-| Model | CV R2 mean | CV MAE mean | CV RMSE mean |
-|---|---:|---:|---:|
-| HistGradientBoosting_tuned | 0.6694 | - | - |
-| HistGradientBoosting | 0.6675 | 27,512.66 | 45,466.88 |
-| RandomForest | 0.6504 | 28,899.33 | 46,631.16 |
-| Ridge | 0.5624 | 40,036.06 | 52,158.38 |
-| Lasso | 0.5605 | 40,106.36 | 52,279.11 |
+## 2. Why This Model Won
 
-## Top model drivers
+From `reports/cv_results.csv`:
 
-Top 10 drivers from `models/model_metadata.json`:
+- `HistGradientBoosting_tuned` CV R2 = **0.6694**
+- `HistGradientBoosting` CV R2 = **0.6672**
+- `RandomForest` CV R2 = **0.6478**
 
-1. `aircraft_type`
-2. `class`
-3. `destination`
-4. `days_before_departure`
-5. `seasonality`
-6. `stopovers`
-7. `route_frequency`
-8. `airline`
-9. `departure_month`
-10. `departure_weekday`
+The tuned gradient boosting model performs best in both CV and holdout, which indicates better generalization than the alternatives for this dataset.
 
-Interpretation notes:
+## 3. What the Diagnostics Show
 
-- `days_before_departure` confirms booking timing impact.
-- `seasonality`, route/destination, and stopovers capture demand and itinerary effects.
-- Cabin class and airline/aircraft variables encode service tier and pricing strategy.
+### Actual vs Predicted (`visualizations/actual_vs_predicted.png`)
 
-## Inference and deployment alignment
+- Predictions follow the overall upward direction, but points are widely dispersed.
+- The model compresses many high-fare cases into lower predicted bands.
+- Practical implication: the model is directionally useful but less precise for expensive tickets.
 
-- A single artifact (`models/best_model_pipeline.pkl`) is used for serving.
-- Inference reuses shared preprocessing logic to maintain feature compatibility.
-- Expected inference schema and training timestamp are tracked in `models/model_metadata.json`.
+### Residual Analysis (`visualizations/residual_analysis.png`)
 
-## EDA and reporting perspective
+- Residual spread increases at higher predicted fares (heteroscedasticity).
+- Residual distribution is centered near zero but with wide tails.
+- Practical implication: average performance is good, but error risk grows for high-fare segments.
 
-- Component plots (base + tax vs total) are retained for business explanation only.
-- Modeling excludes these components to preserve correctness.
+### Bias-Variance Tradeoff (`visualizations/bias_variance_tradeoff.png`)
 
+- Tree ensembles clearly outperform linear models in CV R2.
+- Error bars for the best-performing models are moderate and stable.
+- Practical implication: the winning model balances fit and generalization better than simpler baselines.
+
+## 4. Fare Behavior Insights From EDA
+
+### Distribution patterns
+
+- `visualizations/fare_distribution_total.png`: Total fares are strongly right-skewed; most fares are low-to-mid, with a long high-price tail.
+- `visualizations/fare_distribution_base.png` and `visualizations/fare_distribution_tax.png`: both components are right-skewed and contribute to occasional high total fares.
+
+### Seasonality (`visualizations/fare_by_season_boxplot.png`)
+
+- Median and upper-range fares are higher in peak periods, especially **Hajj**.
+- **Regular** season shows lower central tendency than peak seasons.
+- Practical implication: seasonality is a pricing lever and should be retained in pricing/forecast workflows.
+
+### Airline variation (`visualizations/fare_by_airline.png`)
+
+- Airlines show different fare distributions and spread, indicating distinct pricing strategies.
+- Practical implication: airline-specific behavior should remain a core predictor.
+
+## 5. What Drives Fares (Model Interpretation)
+
+For this run, the best model (`HistGradientBoosting_tuned`) did not produce a native feature-importance vector in the saved output, so interpretation uses the linear coefficient reports:
+
+- `reports/linear_coefficients_linearregression.csv`
+- `reports/linear_coefficients_ridge.csv`
+- `reports/linear_coefficients_lasso.csv`
+
+Consistent high-impact signals across linear models:
+
+1. **Cabin class**  
+   - `class_First Class` strongly increases fares  
+   - `class_Economy` strongly decreases fares relative to baseline categories
+
+2. **Destination / route effects**  
+   - Some destinations (e.g., `destination_CCU`) have large positive fare impact
+   - Route-specific terms in Lasso highlight expensive corridors
+
+3. **Aircraft and airline attributes**  
+   - Aircraft-type terms carry large coefficients, indicating equipment/operational pricing effects
+
+4. **Booking lead time**  
+   - `days_before_departure` is negative in Lasso top coefficients, supporting the business pattern that earlier booking is generally cheaper
+
+## 6. Business Recommendations
+
+1. Use `HistGradientBoosting_tuned` as the default pricing prediction model.  
+Reason: best holdout R2 and lowest RMSE among tested models.
+
+2. Add confidence bands or caution flags for expensive itineraries (high-fare range).  
+Reason: residual spread increases for higher predicted fares.
+
+3. Include season-aware pricing policy controls, especially for Hajj and holiday periods.  
+Reason: season boxplots show higher medians and wider upper ranges in peak seasons.
+
+4. Keep airline, class, and route-level segmentation in reporting and forecasting.  
+Reason: both EDA and coefficients show these variables are strong price differentiators.
+
+5. Monitor drift monthly using the same chronological test strategy.  
+Reason: stable offline performance today does not guarantee future seasonal stability.
 
